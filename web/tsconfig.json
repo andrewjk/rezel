@@ -1,0 +1,30 @@
+{
+	"compilerOptions": {
+		"target": "es2022",
+		"module": "esnext",
+		"lib": ["es2022", "DOM"],
+		"skipLibCheck": true,
+
+		/* Bundler mode */
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"rewriteRelativeImportExtensions": true,
+		"moduleDetection": "force",
+		"resolveJsonModule": true,
+
+		/* Isolation */
+		"isolatedModules": true,
+		"isolatedDeclarations": true,
+		"declaration": true,
+		"declarationMap": true,
+
+		/* Linting */
+		"strict": true,
+		"strictNullChecks": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"erasableSyntaxOnly": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUncheckedSideEffectImports": true
+	}
+}

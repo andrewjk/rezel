@@ -1,0 +1,21 @@
+// Issue #68
+
+@top Doc { Body }
+Body { Prefix name }
+Prefix { num? }
+@skip { ws | Comment }
+@tokens {
+  name { $[a-z]+ }
+  num { $[0-9]+ }
+  ws { $[ \t\n\r]+ }
+  Comment { "//" ![\n]* }
+}
+
+# Keeps the empty reduction after the skipped token
+
+// c
+bar
+
+==>
+
+Doc(Comment,Body(Prefix))
