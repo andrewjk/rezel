@@ -1,4 +1,4 @@
-import { Tree, NodeType, NodeProp, TreeCursor, SyntaxNodeRef } from "@lezer/common";
+import { Tree, NodeType, NodeProp, TreeCursor, SyntaxNodeRef, NodePropSource } from "../common";
 
 let nextTagID = 0;
 
@@ -21,23 +21,33 @@ let nextTagID = 0;
 /// from standard tags to allow highlighters to fall back to those).
 export class Tag {
 	/// @internal
-	id = nextTagID++;
+	id: number = nextTagID++;
 
 	/// @internal
+	readonly name: string;
+	readonly set: Tag[];
+	readonly base: Tag | null;
+	readonly modified: readonly Modifier[];
+
 	constructor(
 		/// The optional name of the base tag @internal
-		readonly name: string,
+		name: string,
 		/// The set of this tag and all its parent tags, starting with
 		/// this one itself and sorted in order of decreasing specificity.
-		readonly set: Tag[],
+		set: Tag[],
 		/// The base unmodified tag that this one is based on, if it's
 		/// modified @internal
-		readonly base: Tag | null,
+		base: Tag | null,
 		/// The modifiers applied to this.base @internal
-		readonly modified: readonly Modifier[],
-	) {}
+		modified: readonly Modifier[],
+	) {
+		this.name = name;
+		this.set = set;
+		this.base = base;
+		this.modified = modified;
+	}
 
-	toString() {
+	toString(): string {
 		let { name } = this;
 		for (let mod of this.modified) if (mod.name) name = `${mod.name}(${name})`;
 		return name;
@@ -86,11 +96,14 @@ let nextModifierID = 0;
 
 class Modifier {
 	instances: Tag[] = [];
-	id = nextModifierID++;
+	id: number = nextModifierID++;
 
-	constructor(readonly name?: string) {}
+	readonly name?: string;
+	constructor(name?: string) {
+		this.name = name;
+	}
 
-	static get(base: Tag, mods: readonly Modifier[]) {
+	static get(base: Tag, mods: readonly Modifier[]): Tag {
 		if (!mods.length) return base;
 		let exists = mods[0].instances.find((t) => t.base == base && sameArray(mods, t.modified));
 		if (exists) return exists;
@@ -168,7 +181,7 @@ function powerSet<T>(array: readonly T[]): (readonly T[])[] {
 ///   })
 /// ]})
 /// ```
-export function styleTags(spec: { [selector: string]: Tag | readonly Tag[] }) {
+export function styleTags(spec: { [selector: string]: Tag | readonly Tag[] }): NodePropSource {
 	let byName: { [name: string]: Rule } = Object.create(null);
 	for (let prop in spec) {
 		let tags = spec[prop];
@@ -176,7 +189,7 @@ export function styleTags(spec: { [selector: string]: Tag | readonly Tag[] }) {
 		for (let part of prop.split(" "))
 			if (part) {
 				let pieces: string[] = [],
-					mode = Mode.Normal,
+					mode: Mode = Mode.Normal,
 					rest = part;
 				for (let pos = 0; ; ) {
 					if (rest == "..." && pos > 0 && pos + 3 == part.length) {
@@ -227,19 +240,21 @@ const ruleNodeProp = new NodeProp<Rule>({
 	},
 });
 
-const enum Mode {
-	Opaque,
-	Inherit,
-	Normal,
-}
+const Mode = { Opaque: 0, Inherit: 1, Normal: 2 } as const;
+type Mode = (typeof Mode)[keyof typeof Mode];
 
 class Rule {
-	constructor(
-		readonly tags: readonly Tag[],
-		readonly mode: Mode,
-		readonly context: readonly string[] | null,
-		public next?: Rule,
-	) {}
+	readonly tags: readonly Tag[];
+	readonly mode: Mode;
+	readonly context: readonly string[] | null;
+	public next?: Rule;
+
+	constructor(tags: readonly Tag[], mode: Mode, context: readonly string[] | null, next?: Rule) {
+		this.tags = tags;
+		this.mode = mode;
+		this.context = context;
+		this.next = next;
+	}
 
 	get opaque() {
 		return this.mode == Mode.Opaque;
@@ -342,8 +357,8 @@ export function highlightTree(
 	/// The start of the range to highlight.
 	from = 0,
 	/// The end of the range.
-	to = tree.length,
-) {
+	to: number = tree.length,
+): void {
 	let builder = new HighlightBuilder(
 		from,
 		Array.isArray(highlighter) ? highlighter : [highlighter],
@@ -364,8 +379,8 @@ export function highlightCode(
 	putText: (code: string, classes: string) => void,
 	putBreak: () => void,
 	from = 0,
-	to = code.length,
-) {
+	to: number = code.length,
+): void {
 	let pos = from;
 	function writeTo(p: number, classes: string) {
 		if (p <= pos) return;
@@ -395,11 +410,19 @@ export function highlightCode(
 
 class HighlightBuilder {
 	class = "";
+	public at: number;
+	readonly highlighters: readonly Highlighter[];
+	readonly span: (from: number, to: number, cls: string) => void;
+
 	constructor(
-		public at: number,
-		readonly highlighters: readonly Highlighter[],
-		readonly span: (from: number, to: number, cls: string) => void,
-	) {}
+		at: number,
+		highlighters: readonly Highlighter[],
+		span: (from: number, to: number, cls: string) => void,
+	) {
+		this.at = at;
+		this.highlighters = highlighters;
+		this.span = span;
+	}
 
 	startSpan(at: number, cls: string) {
 		if (cls != this.class) {
@@ -528,7 +551,204 @@ const comment = t(),
 ///
 /// For tags that extend some parent tag, the documentation links to
 /// the parent.
-export const tags = {
+export const tags: {
+	/// A comment.
+	comment: Tag;
+	/// A line [comment](#highlight.tags.comment).
+	lineComment: Tag;
+	/// A block [comment](#highlight.tags.comment).
+	blockComment: Tag;
+	/// A documentation [comment](#highlight.tags.comment).
+	docComment: Tag;
+	/// Any kind of identifier.
+	name: Tag;
+	/// The [name](#highlight.tags.name) of a variable.
+	variableName: Tag;
+	/// A type [name](#highlight.tags.name).
+	typeName: Tag;
+	/// A tag name (subtag of [`typeName`](#highlight.tags.typeName)).
+	tagName: Tag;
+	/// A property or field [name](#highlight.tags.name).
+	propertyName: Tag;
+	/// An attribute name (subtag of [`propertyName`](#highlight.tags.propertyName)).
+	attributeName: Tag;
+	/// The [name](#highlight.tags.name) of a class.
+	className: Tag;
+	/// A label [name](#highlight.tags.name).
+	labelName: Tag;
+	/// A namespace [name](#highlight.tags.name).
+	namespace: Tag;
+	/// The [name](#highlight.tags.name) of a macro.
+	macroName: Tag;
+	/// A literal value.
+	literal: Tag;
+	/// A string [literal](#highlight.tags.literal).
+	string: Tag;
+	/// A documentation [string](#highlight.tags.string).
+	docString: Tag;
+	/// A character literal (subtag of [string](#highlight.tags.string)).
+	character: Tag;
+	/// An attribute value (subtag of [string](#highlight.tags.string)).
+	attributeValue: Tag;
+	/// A number [literal](#highlight.tags.literal).
+	number: Tag;
+	/// An integer [number](#highlight.tags.number) literal.
+	integer: Tag;
+	/// A floating-point [number](#highlight.tags.number) literal.
+	float: Tag;
+	/// A boolean [literal](#highlight.tags.literal).
+	bool: Tag;
+	/// Regular expression [literal](#highlight.tags.literal).
+	regexp: Tag;
+	/// An escape [literal](#highlight.tags.literal), for example a
+	/// backslash escape in a string.
+	escape: Tag;
+	/// A color [literal](#highlight.tags.literal).
+	color: Tag;
+	/// A URL [literal](#highlight.tags.literal).
+	url: Tag;
+	/// A language keyword.
+	keyword: Tag;
+	/// The [keyword](#highlight.tags.keyword) for the self or this
+	/// object.
+	self: Tag;
+	/// The [keyword](#highlight.tags.keyword) for null.
+	null: Tag;
+	/// A [keyword](#highlight.tags.keyword) denoting some atomic value.
+	atom: Tag;
+	/// A [keyword](#highlight.tags.keyword) that represents a unit.
+	unit: Tag;
+	/// A modifier [keyword](#highlight.tags.keyword).
+	modifier: Tag;
+	/// A [keyword](#highlight.tags.keyword) that acts as an operator.
+	operatorKeyword: Tag;
+	/// A control-flow related [keyword](#highlight.tags.keyword).
+	controlKeyword: Tag;
+	/// A [keyword](#highlight.tags.keyword) that defines something.
+	definitionKeyword: Tag;
+	/// A [keyword](#highlight.tags.keyword) related to defining or
+	/// interfacing with modules.
+	moduleKeyword: Tag;
+	/// An operator.
+	operator: Tag;
+	/// An [operator](#highlight.tags.operator) that dereferences something.
+	derefOperator: Tag;
+	/// Arithmetic-related [operator](#highlight.tags.operator).
+	arithmeticOperator: Tag;
+	/// Logical [operator](#highlight.tags.operator).
+	logicOperator: Tag;
+	/// Bit [operator](#highlight.tags.operator).
+	bitwiseOperator: Tag;
+	/// Comparison [operator](#highlight.tags.operator).
+	compareOperator: Tag;
+	/// [Operator](#highlight.tags.operator) that updates its operand.
+	updateOperator: Tag;
+	/// [Operator](#highlight.tags.operator) that defines something.
+	definitionOperator: Tag;
+	/// Type-related [operator](#highlight.tags.operator).
+	typeOperator: Tag;
+	/// Control-flow [operator](#highlight.tags.operator).
+	controlOperator: Tag;
+	/// Program or markup punctuation.
+	punctuation: Tag;
+	/// [Punctuation](#highlight.tags.punctuation) that separates
+	/// things.
+	separator: Tag;
+	/// Bracket-style [punctuation](#highlight.tags.punctuation).
+	bracket: Tag;
+	/// Angle [brackets](#highlight.tags.bracket) (usually `<` and `>`
+	/// tokens).
+	angleBracket: Tag;
+	/// Square [brackets](#highlight.tags.bracket) (usually `[` and `]`
+	/// tokens).
+	squareBracket: Tag;
+	/// Parentheses (usually `(` and `)` tokens). Subtag of
+	/// [bracket](#highlight.tags.bracket).
+	paren: Tag;
+	/// Braces (usually `{` and `}` tokens). Subtag of
+	/// [bracket](#highlight.tags.bracket).
+	brace: Tag;
+	/// Content, for example plain text in XML or markup documents.
+	content: Tag;
+	/// [Content](#highlight.tags.content) that represents a heading.
+	heading: Tag;
+	/// A level 1 [heading](#highlight.tags.heading).
+	heading1: Tag;
+	/// A level 2 [heading](#highlight.tags.heading).
+	heading2: Tag;
+	/// A level 3 [heading](#highlight.tags.heading).
+	heading3: Tag;
+	/// A level 4 [heading](#highlight.tags.heading).
+	heading4: Tag;
+	/// A level 5 [heading](#highlight.tags.heading).
+	heading5: Tag;
+	/// A level 6 [heading](#highlight.tags.heading).
+	heading6: Tag;
+	/// A prose [content](#highlight.tags.content) separator (such as a horizontal rule).
+	contentSeparator: Tag;
+	/// [Content](#highlight.tags.content) that represents a list.
+	list: Tag;
+	/// [Content](#highlight.tags.content) that represents a quote.
+	quote: Tag;
+	/// [Content](#highlight.tags.content) that is emphasized.
+	emphasis: Tag;
+	/// [Content](#highlight.tags.content) that is styled strong.
+	strong: Tag;
+	/// [Content](#highlight.tags.content) that is part of a link.
+	link: Tag;
+	/// [Content](#highlight.tags.content) that is styled as code or
+	/// monospace.
+	monospace: Tag;
+	/// [Content](#highlight.tags.content) that has a strike-through
+	/// style.
+	strikethrough: Tag;
+	/// Inserted text in a change-tracking format.
+	inserted: Tag;
+	/// Deleted text.
+	deleted: Tag;
+	/// Changed text.
+	changed: Tag;
+	/// An invalid or unsyntactic element.
+	invalid: Tag;
+	/// Metadata or meta-instruction.
+	meta: Tag;
+	/// [Metadata](#highlight.tags.meta) that applies to the entire
+	/// document.
+	documentMeta: Tag;
+	/// [Metadata](#highlight.tags.meta) that annotates or adds
+	/// attributes to a given syntactic element.
+	annotation: Tag;
+	/// Processing instruction or preprocessor directive. Subtag of
+	/// [meta](#highlight.tags.meta).
+	processingInstruction: Tag;
+	/// [Modifier](#highlight.Tag^defineModifier) that indicates that a
+	/// given element is being defined. Expected to be used with the
+	/// various [name](#highlight.tags.name) tags.
+	definition: (tag: Tag) => Tag;
+	/// [Modifier](#highlight.Tag^defineModifier) that indicates that
+	/// something is constant. Mostly expected to be used with
+	/// [variable names](#highlight.tags.variableName).
+	constant: (tag: Tag) => Tag;
+	/// [Modifier](#highlight.Tag^defineModifier) used to indicate that
+	/// a [variable](#highlight.tags.variableName) or [property
+	/// name](#highlight.tags.propertyName) is being called or defined
+	/// as a function.
+	function: (tag: Tag) => Tag;
+	/// [Modifier](#highlight.Tag^defineModifier) that can be applied to
+	/// [names](#highlight.tags.name) to indicate that they belong to
+	/// the language's standard environment.
+	standard: (tag: Tag) => Tag;
+	/// [Modifier](#highlight.Tag^defineModifier) that indicates a given
+	/// [names](#highlight.tags.name) is local to some scope.
+	local: (tag: Tag) => Tag;
+	/// A generic variant [modifier](#highlight.Tag^defineModifier) that
+	/// can be used to tag language-specific alternative variants of
+	/// some common tag. It is recommended for themes to define special
+	/// forms of at least the [string](#highlight.tags.string) and
+	/// [variable name](#highlight.tags.variableName) tags, since those
+	/// come up a lot.
+	special: (tag: Tag) => Tag;
+} = {
 	/// A comment.
 	comment,
 	/// A line [comment](#highlight.tags.comment).
@@ -789,7 +1009,7 @@ for (let name in tags) {
 ///   to `"tok-variableName tok-definition"`
 /// * [`definition`](#highlight.tags.definition)[`(propertyName)`](#highlight.tags.propertyName)
 ///   to `"tok-propertyName tok-definition"`
-export const classHighlighter = tagHighlighter([
+export const classHighlighter: Highlighter = tagHighlighter([
 	{ tag: tags.link, class: "tok-link" },
 	{ tag: tags.heading, class: "tok-heading" },
 	{ tag: tags.emphasis, class: "tok-emphasis" },

@@ -1,5 +1,5 @@
-export const verbose = (typeof process != "undefined" && process.env.LOG) || "";
-export const timing = /\btime\b/.test(verbose);
+export const verbose: string = (typeof process != "undefined" && process.env.LOG) || "";
+export const timing: boolean = /\btime\b/.test(verbose);
 export const time: <T>(label: string, f: () => T) => T = timing
 	? (label, f) => {
 			let t0 = Date.now();

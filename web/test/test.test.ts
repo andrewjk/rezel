@@ -1,5 +1,6 @@
-// @ts-ignore
-import { fileTests } from "../dist/test.js";
+import { describe, it } from "vitest";
+
+import { fileTests } from "../src/generator/test";
 
 describe("test", () => {
 	it("handle parser error", () => {

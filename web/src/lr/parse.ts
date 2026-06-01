@@ -11,8 +11,7 @@ import {
 	Parser,
 	ParseWrapper,
 	IterMode,
-} from "@lezer/common";
-
+} from "../common";
 import { Action, Specialize, Term, Seq, StateFlag, ParseState, File } from "./constants";
 import { decodeArray } from "./decode";
 import { Stack, StackBufferCursor, Lookahead } from "./stack";
@@ -49,14 +48,16 @@ class FragmentCursor {
 	index: number[] = [];
 	nextStart!: number;
 
-	constructor(
-		readonly fragments: readonly TreeFragment[],
-		readonly nodeSet: NodeSet,
-	) {
+	readonly fragments: readonly TreeFragment[];
+	readonly nodeSet: NodeSet;
+
+	constructor(fragments: readonly TreeFragment[], nodeSet: NodeSet) {
+		this.fragments = fragments;
+		this.nodeSet = nodeSet;
 		this.nextFragment();
 	}
 
-	nextFragment() {
+	nextFragment(): void {
 		let fr = (this.fragment = this.i == this.fragments.length ? null : this.fragments[this.i++]);
 		if (fr) {
 			this.safeFrom = fr.openStart ? cutAt(fr.tree, fr.from + fr.offset, 1) - fr.offset : fr.from;
@@ -132,14 +133,14 @@ class TokenCache {
 
 	actions: number[] = [];
 
-	constructor(
-		parser: LRParser,
-		readonly stream: InputStream,
-	) {
+	readonly stream: InputStream;
+
+	constructor(parser: LRParser, stream: InputStream) {
+		this.stream = stream;
 		this.tokens = parser.tokenizers.map((_) => new CachedToken());
 	}
 
-	getActions(stack: Stack) {
+	getActions(stack: Stack): number[] {
 		let actionIndex = 0;
 		let main: CachedToken | null = null;
 		let { parser } = stack.p,
@@ -190,7 +191,7 @@ class TokenCache {
 		return this.actions;
 	}
 
-	getMainToken(stack: Stack) {
+	getMainToken(stack: Stack): any {
 		if (this.mainToken) return this.mainToken;
 		let main = new CachedToken(),
 			{ pos, p } = stack;
@@ -200,7 +201,7 @@ class TokenCache {
 		return main;
 	}
 
-	updateCachedToken(token: CachedToken, tokenizer: Tokenizer, stack: Stack) {
+	updateCachedToken(token: CachedToken, tokenizer: Tokenizer, stack: Stack): void {
 		let start = this.stream.clipPos(stack.pos);
 		tokenizer.token(this.stream.reset(start, token), stack);
 		if (token.value > -1) {
@@ -221,7 +222,7 @@ class TokenCache {
 		}
 	}
 
-	putAction(action: number, token: number, end: number, index: number) {
+	putAction(action: number, token: number, end: number, index: number): number {
 		// Don't add duplicate actions
 		for (let i = 0; i < index; i += 3) if (this.actions[i] == action) return index;
 		this.actions[index++] = action;
@@ -230,7 +231,7 @@ class TokenCache {
 		return index;
 	}
 
-	addActions(stack: Stack, token: number, end: number, index: number) {
+	addActions(stack: Stack, token: number, end: number, index: number): number {
 		let { state } = stack,
 			{ parser } = stack.p,
 			{ data } = parser;
@@ -252,24 +253,25 @@ class TokenCache {
 	}
 }
 
-const enum Rec {
-	Distance = 5,
-	MaxRemainingPerStep = 3,
+const Rec = {
+	Distance: 5,
+	MaxRemainingPerStep: 3,
 	// When two stacks have been running independently long enough to
 	// add this many elements to their buffers, prune one.
-	MinBufferLengthPrune = 500,
-	ForceReduceLimit = 10,
+	MinBufferLengthPrune: 500,
+	ForceReduceLimit: 10,
 	// Once a stack reaches this depth (in .stack.length) force-reduce
 	// it back to CutTo to avoid creating trees that overflow the stack
 	// on recursive traversal.
-	CutDepth = 2800 * 3,
-	CutTo = 2000 * 3,
-	MaxLeftAssociativeReductionCount = 300,
+	CutDepth: 2800 * 3,
+	CutTo: 2000 * 3,
+	MaxLeftAssociativeReductionCount: 300,
 	// The maximum number of non-recovering stacks to explore (to avoid
 	// getting bogged down with exponentially multiplying stacks in
 	// ambiguous content)
-	MaxStackCount = 12,
-}
+	MaxStackCount: 12,
+} as const;
+type Rec = (typeof Rec)[keyof typeof Rec];
 
 export class Parse implements PartialParse {
 	// Active parse stacks.
@@ -289,12 +291,19 @@ export class Parse implements PartialParse {
 	lastBigReductionSize = 0;
 	bigReductionCount = 0;
 
+	readonly parser: LRParser;
+	readonly input: Input;
+	readonly ranges: readonly { from: number; to: number }[];
+
 	constructor(
-		readonly parser: LRParser,
-		readonly input: Input,
+		parser: LRParser,
+		input: Input,
 		fragments: readonly TreeFragment[],
-		readonly ranges: readonly { from: number; to: number }[],
+		ranges: readonly { from: number; to: number }[],
 	) {
+		this.parser = parser;
+		this.input = input;
+		this.ranges = ranges;
 		this.stream = new InputStream(input, ranges);
 		this.tokens = new TokenCache(parser, this.stream);
 		this.topTerm = parser.top[1];
@@ -306,7 +315,7 @@ export class Parse implements PartialParse {
 				: null;
 	}
 
-	get parsedPos() {
+	get parsedPos(): number {
 		return this.minStackPos;
 	}
 
@@ -316,7 +325,7 @@ export class Parse implements PartialParse {
 	//
 	// When the parse is finished, this will return a syntax tree. When
 	// not, it returns `null`.
-	advance() {
+	advance(): Tree | null {
 		let stacks = this.stacks,
 			pos = this.minStackPos;
 		// This will hold stacks beyond `pos`.
@@ -434,7 +443,7 @@ export class Parse implements PartialParse {
 		return null;
 	}
 
-	stopAt(pos: number) {
+	stopAt(pos: number): void {
 		if (this.stoppedAt != null && this.stoppedAt < pos)
 			throw new RangeError("Can't move stoppedAt forward");
 		this.stoppedAt = pos;
@@ -621,13 +630,16 @@ function pushStackDedup(stack: Stack, newStacks: Stack[]) {
 }
 
 export class Dialect {
-	constructor(
-		readonly source: string | undefined,
-		readonly flags: readonly boolean[],
-		readonly disabled: null | Uint8Array,
-	) {}
+	readonly source: string | undefined;
+	readonly flags: readonly boolean[];
+	readonly disabled: null | Uint8Array;
+	constructor(source: string | undefined, flags: readonly boolean[], disabled: null | Uint8Array) {
+		this.source = source;
+		this.flags = flags;
+		this.disabled = disabled;
+	}
 
-	allows(term: number) {
+	allows(term: number): boolean {
 		return !this.disabled || this.disabled[term] == 0;
 	}
 }
@@ -891,7 +903,7 @@ export class LRParser extends Parser {
 	}
 
 	/// Get a goto table entry @internal
-	getGoto(state: number, term: number, loose = false) {
+	getGoto(state: number, term: number, loose = false): number {
 		let table = this.goto;
 		if (term >= table[0]) return -1;
 		for (let pos = table[term + 1]; ; ) {
@@ -906,7 +918,7 @@ export class LRParser extends Parser {
 	}
 
 	/// Check if this state has an action for a given terminal @internal
-	hasAction(state: number, terminal: number) {
+	hasAction(state: number, terminal: number): number {
 		let data = this.data;
 		for (let set = 0; set < 2; set++) {
 			for (
@@ -926,17 +938,17 @@ export class LRParser extends Parser {
 	}
 
 	/// @internal
-	stateSlot(state: number, slot: number) {
+	stateSlot(state: number, slot: number): number {
 		return this.states[state * ParseState.Size + slot];
 	}
 
 	/// @internal
-	stateFlag(state: number, flag: number) {
+	stateFlag(state: number, flag: number): boolean {
 		return (this.stateSlot(state, ParseState.Flags) & flag) > 0;
 	}
 
 	/// @internal
-	validAction(state: number, action: number) {
+	validAction(state: number, action: number): boolean {
 		return !!this.allActions(state, (a) => (a == action ? true : null));
 	}
 
@@ -1009,7 +1021,7 @@ export class LRParser extends Parser {
 
 	/// Tells you whether any [parse wrappers](#lr.ParserConfig.wrap)
 	/// are registered for this parser.
-	hasWrappers() {
+	hasWrappers(): boolean {
 		return this.wrappers.length > 0;
 	}
 
@@ -1025,23 +1037,23 @@ export class LRParser extends Parser {
 
 	/// The eof term id is always allocated directly after the node
 	/// types. @internal
-	get eofTerm() {
+	get eofTerm(): number {
 		return this.maxNode + 1;
 	}
 
 	/// The type of top node produced by the parser.
-	get topNode() {
+	get topNode(): NodeType {
 		return this.nodeSet.types[this.top[1]];
 	}
 
 	/// @internal
-	dynamicPrecedence(term: number) {
+	dynamicPrecedence(term: number): number {
 		let prec = this.dynamicPrecedences;
 		return prec == null ? 0 : prec[term] || 0;
 	}
 
 	/// @internal
-	parseDialect(dialect?: string) {
+	parseDialect(dialect?: string): Dialect {
 		let values = Object.keys(this.dialects),
 			flags = values.map(() => false);
 		if (dialect)

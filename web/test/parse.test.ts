@@ -1,3 +1,6 @@
+import ist from "ist";
+import { describe, it } from "vitest";
+
 import {
 	Tree,
 	TreeFragment,
@@ -6,13 +9,10 @@ import {
 	parseMixed,
 	SyntaxNode,
 	IterMode,
-} from "@lezer/common";
-import { LRParser, ParserConfig } from "@lezer/lr";
-import ist from "ist";
-
-import { buildParser, BuildOptions } from "../dist/index.js";
-// @ts-ignore
-import { testTree } from "../dist/test.js";
+} from "../src/common";
+import { buildParser, BuildOptions } from "../src/generator";
+import { testTree } from "../src/generator/test";
+import { LRParser, ParserConfig } from "../src/lr";
 
 function p(text: string, options?: BuildOptions, config?: ParserConfig): () => LRParser {
 	let value: LRParser | null = null;

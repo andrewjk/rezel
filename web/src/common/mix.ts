@@ -61,14 +61,28 @@ export function parseMixed(
 }
 
 class InnerParse {
+	readonly parser: Parser;
+	readonly parse: PartialParse;
+	readonly overlay: readonly { from: number; to: number }[] | null;
+	readonly bracketed: boolean;
+	readonly target: Tree;
+	readonly from: number;
+
 	constructor(
-		readonly parser: Parser,
-		readonly parse: PartialParse,
-		readonly overlay: readonly { from: number; to: number }[] | null,
-		readonly bracketed: boolean,
-		readonly target: Tree,
-		readonly from: number,
-	) {}
+		parser: Parser,
+		parse: PartialParse,
+		overlay: readonly { from: number; to: number }[] | null,
+		bracketed: boolean,
+		target: Tree,
+		from: number,
+	) {
+		this.parser = parser;
+		this.parse = parse;
+		this.overlay = overlay;
+		this.bracketed = bracketed;
+		this.target = target;
+		this.from = from;
+	}
 }
 
 function checkRanges(ranges: readonly { from: number; to: number }[]) {
@@ -80,16 +94,34 @@ class ActiveOverlay {
 	depth = 0;
 	readonly ranges: { from: number; to: number }[] = [];
 
+	readonly parser: Parser;
+	readonly predicate: (node: SyntaxNodeRef) => { from: number; to: number } | boolean;
+	readonly mounts: readonly ReusableMount[];
+	readonly index: number;
+	readonly start: number;
+	readonly bracketed: boolean;
+	readonly target: Tree;
+	readonly prev: ActiveOverlay | null;
+
 	constructor(
-		readonly parser: Parser,
-		readonly predicate: (node: SyntaxNodeRef) => { from: number; to: number } | boolean,
-		readonly mounts: readonly ReusableMount[],
-		readonly index: number,
-		readonly start: number,
-		readonly bracketed: boolean,
-		readonly target: Tree,
-		readonly prev: ActiveOverlay | null,
-	) {}
+		parser: Parser,
+		predicate: (node: SyntaxNodeRef) => { from: number; to: number } | boolean,
+		mounts: readonly ReusableMount[],
+		index: number,
+		start: number,
+		bracketed: boolean,
+		target: Tree,
+		prev: ActiveOverlay | null,
+	) {
+		this.parser = parser;
+		this.predicate = predicate;
+		this.mounts = mounts;
+		this.index = index;
+		this.start = start;
+		this.bracketed = bracketed;
+		this.target = target;
+		this.prev = prev;
+	}
 }
 
 type CoverInfo = null | {
@@ -107,14 +139,23 @@ class MixedParse implements PartialParse {
 	baseTree: Tree | null = null;
 	stoppedAt: number | null = null;
 
+	readonly nest: (node: SyntaxNodeRef, input: Input) => NestedParse | null;
+	readonly input: Input;
+	readonly fragments: readonly TreeFragment[];
+	readonly ranges: readonly { from: number; to: number }[];
+
 	constructor(
 		base: PartialParse,
-		readonly nest: (node: SyntaxNodeRef, input: Input) => NestedParse | null,
-		readonly input: Input,
-		readonly fragments: readonly TreeFragment[],
-		readonly ranges: readonly { from: number; to: number }[],
+		nest: (node: SyntaxNodeRef, input: Input) => NestedParse | null,
+		input: Input,
+		fragments: readonly TreeFragment[],
+		ranges: readonly { from: number; to: number }[],
 	) {
 		this.baseParse = base;
+		this.nest = nest;
+		this.input = input;
+		this.fragments = fragments;
+		this.ranges = ranges;
 	}
 
 	advance() {
@@ -302,11 +343,8 @@ class MixedParse implements PartialParse {
 	}
 }
 
-const enum Cover {
-	None = 0,
-	Partial = 1,
-	Full = 2,
-}
+const Cover = { None: 0, Partial: 1, Full: 2 } as const;
+type Cover = (typeof Cover)[keyof typeof Cover];
 
 function checkCover(covered: readonly { from: number; to: number }[], from: number, to: number) {
 	for (let range of covered) {
@@ -392,11 +430,11 @@ class StructureCursor {
 	cursor: TreeCursor;
 	done = false;
 
-	constructor(
-		root: Tree,
-		private offset: number,
-	) {
-		this.cursor = root.cursor(IterMode.IncludeAnonymous | IterMode.IgnoreMounts);
+	private offset: number;
+
+	constructor(root: Tree, offset: number) {
+		this.offset = offset;
+		this.cursor = root.cursor((IterMode.IncludeAnonymous | IterMode.IgnoreMounts) as IterMode);
 	}
 
 	// Move to the first node (in pre-order) that starts at or after `pos`.
@@ -406,7 +444,7 @@ class StructureCursor {
 		while (!this.done && cursor.from < p) {
 			if (
 				cursor.to >= pos &&
-				cursor.enter(p, 1, IterMode.IgnoreOverlays | IterMode.ExcludeBuffers)
+				cursor.enter(p, 1, (IterMode.IgnoreOverlays | IterMode.ExcludeBuffers) as IterMode)
 			) {
 				// Entered
 			} else if (cursor.to <= pos) {
@@ -438,7 +476,10 @@ class FragmentCursor {
 	fragI = 0;
 	inner: StructureCursor | null;
 
-	constructor(readonly fragments: readonly TreeFragment[]) {
+	readonly fragments: readonly TreeFragment[];
+
+	constructor(fragments: readonly TreeFragment[]) {
+		this.fragments = fragments;
 		if (fragments.length) {
 			let first = (this.curFrag = fragments[0]);
 			this.curTo = first.tree.prop(stoppedInner) ?? first.to;

@@ -1,47 +1,92 @@
 export class Node {
-	constructor(readonly start: number) {}
+	readonly start: number;
+	constructor(start: number) {
+		this.start = start;
+	}
 }
 
 export class GrammarDeclaration extends Node {
+	readonly rules: readonly RuleDeclaration[];
+	readonly topRules: readonly RuleDeclaration[];
+	readonly tokens: TokenDeclaration | null;
+	readonly localTokens: readonly LocalTokenDeclaration[];
+	readonly context: ContextDeclaration | null;
+	readonly externalTokens: readonly ExternalTokenDeclaration[];
+	readonly externalSpecializers: readonly ExternalSpecializeDeclaration[];
+	readonly externalPropSources: readonly ExternalPropSourceDeclaration[];
+	readonly precedences: PrecDeclaration | null;
+	readonly mainSkip: Expression | null;
+	readonly scopedSkip: readonly {
+		expr: Expression;
+		topRules: readonly RuleDeclaration[];
+		rules: readonly RuleDeclaration[];
+	}[];
+	readonly dialects: readonly Identifier[];
+	readonly externalProps: readonly ExternalPropDeclaration[];
+	readonly autoDelim: boolean;
+
 	constructor(
 		start: number,
-		readonly rules: readonly RuleDeclaration[],
-		readonly topRules: readonly RuleDeclaration[],
-		readonly tokens: TokenDeclaration | null,
-		readonly localTokens: readonly LocalTokenDeclaration[],
-		readonly context: ContextDeclaration | null,
-		readonly externalTokens: readonly ExternalTokenDeclaration[],
-		readonly externalSpecializers: readonly ExternalSpecializeDeclaration[],
-		readonly externalPropSources: readonly ExternalPropSourceDeclaration[],
-		readonly precedences: PrecDeclaration | null,
-		readonly mainSkip: Expression | null,
-		readonly scopedSkip: readonly {
+		rules: readonly RuleDeclaration[],
+		topRules: readonly RuleDeclaration[],
+		tokens: TokenDeclaration | null,
+		localTokens: readonly LocalTokenDeclaration[],
+		context: ContextDeclaration | null,
+		externalTokens: readonly ExternalTokenDeclaration[],
+		externalSpecializers: readonly ExternalSpecializeDeclaration[],
+		externalPropSources: readonly ExternalPropSourceDeclaration[],
+		precedences: PrecDeclaration | null,
+		mainSkip: Expression | null,
+		scopedSkip: readonly {
 			expr: Expression;
 			topRules: readonly RuleDeclaration[];
 			rules: readonly RuleDeclaration[];
 		}[],
-		readonly dialects: readonly Identifier[],
-		readonly externalProps: readonly ExternalPropDeclaration[],
-		readonly autoDelim: boolean,
+		dialects: readonly Identifier[],
+		externalProps: readonly ExternalPropDeclaration[],
+		autoDelim: boolean,
 	) {
 		super(start);
+		this.rules = rules;
+		this.topRules = topRules;
+		this.tokens = tokens;
+		this.localTokens = localTokens;
+		this.context = context;
+		this.externalTokens = externalTokens;
+		this.externalSpecializers = externalSpecializers;
+		this.externalPropSources = externalPropSources;
+		this.precedences = precedences;
+		this.mainSkip = mainSkip;
+		this.scopedSkip = scopedSkip;
+		this.dialects = dialects;
+		this.externalProps = externalProps;
+		this.autoDelim = autoDelim;
 	}
-	toString() {
+	toString(): string {
 		return Object.values(this.rules).join("\n");
 	}
 }
 
 export class RuleDeclaration extends Node {
+	readonly id: Identifier;
+	readonly props: readonly Prop[];
+	readonly params: readonly Identifier[];
+	readonly expr: Expression;
+
 	constructor(
 		start: number,
-		readonly id: Identifier,
-		readonly props: readonly Prop[],
-		readonly params: readonly Identifier[],
-		readonly expr: Expression,
+		id: Identifier,
+		props: readonly Prop[],
+		params: readonly Identifier[],
+		expr: Expression,
 	) {
 		super(start);
+		this.id = id;
+		this.props = props;
+		this.params = params;
+		this.expr = expr;
 	}
-	toString() {
+	toString(): string {
 		return (
 			this.id.name + (this.params.length ? `<${this.params.join()}>` : "") + " -> " + this.expr
 		);
@@ -49,130 +94,179 @@ export class RuleDeclaration extends Node {
 }
 
 export class PrecDeclaration extends Node {
+	readonly items: readonly { id: Identifier; type: "left" | "right" | "cut" | null }[];
+
 	constructor(
 		start: number,
-		readonly items: readonly { id: Identifier; type: "left" | "right" | "cut" | null }[],
+		items: readonly { id: Identifier; type: "left" | "right" | "cut" | null }[],
 	) {
 		super(start);
+		this.items = items;
 	}
 }
 
 export class TokenPrecDeclaration extends Node {
-	constructor(
-		start: number,
-		readonly items: readonly (NameExpression | LiteralExpression)[],
-	) {
+	readonly items: readonly (NameExpression | LiteralExpression)[];
+
+	constructor(start: number, items: readonly (NameExpression | LiteralExpression)[]) {
 		super(start);
+		this.items = items;
 	}
 }
 
 export class TokenConflictDeclaration extends Node {
+	readonly a: NameExpression | LiteralExpression;
+	readonly b: NameExpression | LiteralExpression;
+
 	constructor(
 		start: number,
-		readonly a: NameExpression | LiteralExpression,
-		readonly b: NameExpression | LiteralExpression,
+		a: NameExpression | LiteralExpression,
+		b: NameExpression | LiteralExpression,
 	) {
 		super(start);
+		this.a = a;
+		this.b = b;
 	}
 }
 
 export class TokenDeclaration extends Node {
+	readonly precedences: readonly TokenPrecDeclaration[];
+	readonly conflicts: readonly TokenConflictDeclaration[];
+	readonly rules: readonly RuleDeclaration[];
+	readonly literals: readonly LiteralDeclaration[];
+
 	constructor(
 		start: number,
-		readonly precedences: readonly TokenPrecDeclaration[],
-		readonly conflicts: readonly TokenConflictDeclaration[],
-		readonly rules: readonly RuleDeclaration[],
-		readonly literals: readonly LiteralDeclaration[],
+		precedences: readonly TokenPrecDeclaration[],
+		conflicts: readonly TokenConflictDeclaration[],
+		rules: readonly RuleDeclaration[],
+		literals: readonly LiteralDeclaration[],
 	) {
 		super(start);
+		this.precedences = precedences;
+		this.conflicts = conflicts;
+		this.rules = rules;
+		this.literals = literals;
 	}
 }
 
 export class LocalTokenDeclaration extends Node {
+	readonly precedences: readonly TokenPrecDeclaration[];
+	readonly rules: readonly RuleDeclaration[];
+	readonly fallback: { readonly id: Identifier; readonly props: readonly Prop[] } | null;
+
 	constructor(
 		start: number,
-		readonly precedences: readonly TokenPrecDeclaration[],
-		readonly rules: readonly RuleDeclaration[],
-		readonly fallback: { readonly id: Identifier; readonly props: readonly Prop[] } | null,
+		precedences: readonly TokenPrecDeclaration[],
+		rules: readonly RuleDeclaration[],
+		fallback: { readonly id: Identifier; readonly props: readonly Prop[] } | null,
 	) {
 		super(start);
+		this.precedences = precedences;
+		this.rules = rules;
+		this.fallback = fallback;
 	}
 }
 
 export class LiteralDeclaration extends Node {
-	constructor(
-		start: number,
-		readonly literal: string,
-		readonly props: readonly Prop[],
-	) {
+	readonly literal: string;
+	readonly props: readonly Prop[];
+
+	constructor(start: number, literal: string, props: readonly Prop[]) {
 		super(start);
+		this.literal = literal;
+		this.props = props;
 	}
 }
 
 export class ContextDeclaration extends Node {
-	constructor(
-		start: number,
-		readonly id: Identifier,
-		readonly source: string,
-	) {
+	readonly id: Identifier;
+	readonly source: string;
+
+	constructor(start: number, id: Identifier, source: string) {
 		super(start);
+		this.id = id;
+		this.source = source;
 	}
 }
 
 export class ExternalTokenDeclaration extends Node {
+	readonly id: Identifier;
+	readonly source: string;
+	readonly tokens: readonly { id: Identifier; props: readonly Prop[] }[];
+	readonly conflicts: readonly Identifier[];
+
 	constructor(
 		start: number,
-		readonly id: Identifier,
-		readonly source: string,
-		readonly tokens: readonly { id: Identifier; props: readonly Prop[] }[],
-		readonly conflicts: readonly Identifier[],
+		id: Identifier,
+		source: string,
+		tokens: readonly { id: Identifier; props: readonly Prop[] }[],
+		conflicts: readonly Identifier[],
 	) {
 		super(start);
+		this.id = id;
+		this.source = source;
+		this.tokens = tokens;
+		this.conflicts = conflicts;
 	}
 }
 
 export class ExternalSpecializeDeclaration extends Node {
+	readonly type: "extend" | "specialize";
+	readonly token: Expression;
+	readonly id: Identifier;
+	readonly source: string;
+	readonly tokens: readonly { id: Identifier; props: readonly Prop[] }[];
+
 	constructor(
 		start: number,
-		readonly type: "extend" | "specialize",
-		readonly token: Expression,
-		readonly id: Identifier,
-		readonly source: string,
-		readonly tokens: readonly { id: Identifier; props: readonly Prop[] }[],
+		type: "extend" | "specialize",
+		token: Expression,
+		id: Identifier,
+		source: string,
+		tokens: readonly { id: Identifier; props: readonly Prop[] }[],
 	) {
 		super(start);
+		this.type = type;
+		this.token = token;
+		this.id = id;
+		this.source = source;
+		this.tokens = tokens;
 	}
 }
 
 export class ExternalPropSourceDeclaration extends Node {
-	constructor(
-		start: number,
-		readonly id: Identifier,
-		readonly source: string,
-	) {
+	readonly id: Identifier;
+	readonly source: string;
+
+	constructor(start: number, id: Identifier, source: string) {
 		super(start);
+		this.id = id;
+		this.source = source;
 	}
 }
 
 export class ExternalPropDeclaration extends Node {
-	constructor(
-		start: number,
-		readonly id: Identifier,
-		readonly externalID: Identifier,
-		readonly source: string,
-	) {
+	readonly id: Identifier;
+	readonly externalID: Identifier;
+	readonly source: string;
+
+	constructor(start: number, id: Identifier, externalID: Identifier, source: string) {
 		super(start);
+		this.id = id;
+		this.externalID = externalID;
+		this.source = source;
 	}
 }
 
 export class Identifier extends Node {
-	constructor(
-		start: number,
-		readonly name: string,
-	) {
+	readonly name: string;
+
+	constructor(start: number, name: string) {
 		super(start);
+		this.name = name;
 	}
-	toString() {
+	toString(): string {
 		return this.name;
 	}
 }
@@ -190,17 +284,18 @@ export class Expression extends Node {
 Expression.prototype.prec = 10;
 
 export class NameExpression extends Expression {
-	constructor(
-		start: number,
-		readonly id: Identifier,
-		readonly args: readonly Expression[],
-	) {
+	readonly id: Identifier;
+	readonly args: readonly Expression[];
+
+	constructor(start: number, id: Identifier, args: readonly Expression[]) {
 		super(start);
+		this.id = id;
+		this.args = args;
 	}
-	toString() {
+	toString(): string {
 		return this.id.name + (this.args.length ? `<${this.args.join()}>` : "");
 	}
-	eq(other: NameExpression) {
+	eq(other: NameExpression): boolean {
 		return this.id.name == other.id.name && exprsEq(this.args, other.args);
 	}
 	walk(f: (expr: Expression) => Expression): Expression {
@@ -210,19 +305,28 @@ export class NameExpression extends Expression {
 }
 
 export class SpecializeExpression extends Expression {
+	readonly type: string;
+	readonly props: readonly Prop[];
+	readonly token: Expression;
+	readonly content: Expression;
+
 	constructor(
 		start: number,
-		readonly type: string,
-		readonly props: readonly Prop[],
-		readonly token: Expression,
-		readonly content: Expression,
+		type: string,
+		props: readonly Prop[],
+		token: Expression,
+		content: Expression,
 	) {
 		super(start);
+		this.type = type;
+		this.props = props;
+		this.token = token;
+		this.content = content;
 	}
 	toString() {
 		return `@${this.type}[${this.props.join(",")}]<${this.token}, ${this.content}>`;
 	}
-	eq(other: SpecializeExpression) {
+	eq(other: SpecializeExpression): boolean {
 		return (
 			this.type == other.type &&
 			Prop.eqProps(this.props, other.props) &&
@@ -242,18 +346,18 @@ export class SpecializeExpression extends Expression {
 }
 
 export class InlineRuleExpression extends Expression {
-	constructor(
-		start: number,
-		readonly rule: RuleDeclaration,
-	) {
+	readonly rule: RuleDeclaration;
+
+	constructor(start: number, rule: RuleDeclaration) {
 		super(start);
+		this.rule = rule;
 	}
 
 	toString() {
 		let rule = this.rule;
 		return `${rule.id}${rule.props.length ? `[${rule.props.join(",")}]` : ""} { ${rule.expr} }`;
 	}
-	eq(other: InlineRuleExpression) {
+	eq(other: InlineRuleExpression): boolean {
 		let rule = this.rule,
 			oRule = other.rule;
 		return (
@@ -277,16 +381,16 @@ export class InlineRuleExpression extends Expression {
 }
 
 export class ChoiceExpression extends Expression {
-	constructor(
-		start: number,
-		readonly exprs: readonly Expression[],
-	) {
+	readonly exprs: readonly Expression[];
+
+	constructor(start: number, exprs: readonly Expression[]) {
 		super(start);
+		this.exprs = exprs;
 	}
-	toString() {
+	toString(): string {
 		return this.exprs.map((e) => maybeParens(e, this)).join(" | ");
 	}
-	eq(other: ChoiceExpression) {
+	eq(other: ChoiceExpression): boolean {
 		return exprsEq(this.exprs, other.exprs);
 	}
 	walk(f: (expr: Expression) => Expression): Expression {
@@ -298,18 +402,25 @@ export class ChoiceExpression extends Expression {
 ChoiceExpression.prototype.prec = 1;
 
 export class SequenceExpression extends Expression {
+	readonly exprs: readonly Expression[];
+	readonly markers: readonly (readonly ConflictMarker[])[];
+	readonly empty: boolean;
+
 	constructor(
 		start: number,
-		readonly exprs: readonly Expression[],
-		readonly markers: readonly (readonly ConflictMarker[])[],
-		readonly empty = false,
+		exprs: readonly Expression[],
+		markers: readonly (readonly ConflictMarker[])[],
+		empty = false,
 	) {
 		super(start);
+		this.exprs = exprs;
+		this.markers = markers;
+		this.empty = empty;
 	}
-	toString() {
+	toString(): string {
 		return this.empty ? "()" : this.exprs.map((e) => maybeParens(e, this)).join(" ");
 	}
-	eq(other: SequenceExpression) {
+	eq(other: SequenceExpression): boolean {
 		return (
 			exprsEq(this.exprs, other.exprs) &&
 			this.markers.every((m, i) => {
@@ -331,35 +442,37 @@ export class SequenceExpression extends Expression {
 SequenceExpression.prototype.prec = 2;
 
 export class ConflictMarker extends Node {
-	constructor(
-		start: number,
-		readonly id: Identifier,
-		readonly type: "ambig" | "prec",
-	) {
+	readonly id: Identifier;
+	readonly type: "ambig" | "prec";
+
+	constructor(start: number, id: Identifier, type: "ambig" | "prec") {
 		super(start);
+		this.id = id;
+		this.type = type;
 	}
 
-	toString() {
+	toString(): string {
 		return (this.type == "ambig" ? "~" : "!") + this.id.name;
 	}
 
-	eq(other: ConflictMarker) {
+	eq(other: ConflictMarker): boolean {
 		return this.id.name == other.id.name && this.type == other.type;
 	}
 }
 
 export class RepeatExpression extends Expression {
-	constructor(
-		start: number,
-		readonly expr: Expression,
-		readonly kind: "?" | "*" | "+",
-	) {
+	readonly expr: Expression;
+	readonly kind: "?" | "*" | "+";
+
+	constructor(start: number, expr: Expression, kind: "?" | "*" | "+") {
 		super(start);
+		this.expr = expr;
+		this.kind = kind;
 	}
-	toString() {
+	toString(): string {
 		return maybeParens(this.expr, this) + this.kind;
 	}
-	eq(other: RepeatExpression) {
+	eq(other: RepeatExpression): boolean {
 		return exprEq(this.expr, other.expr) && this.kind == other.kind;
 	}
 	walk(f: (expr: Expression) => Expression): Expression {
@@ -371,35 +484,35 @@ export class RepeatExpression extends Expression {
 RepeatExpression.prototype.prec = 3;
 
 export class LiteralExpression extends Expression {
-	// value.length is always > 0
-	constructor(
-		start: number,
-		readonly value: string,
-	) {
+	readonly value: string;
+
+	constructor(start: number, value: string) {
 		super(start);
+		this.value = value;
 	}
-	toString() {
+	toString(): string {
 		return JSON.stringify(this.value);
 	}
-	eq(other: LiteralExpression) {
+	eq(other: LiteralExpression): boolean {
 		return this.value == other.value;
 	}
 }
 
 export class SetExpression extends Expression {
-	constructor(
-		start: number,
-		readonly ranges: [number, number][],
-		readonly inverted: boolean,
-	) {
+	readonly ranges: [number, number][];
+	readonly inverted: boolean;
+
+	constructor(start: number, ranges: [number, number][], inverted: boolean) {
 		super(start);
+		this.ranges = ranges;
+		this.inverted = inverted;
 	}
 	toString() {
 		return `[${this.inverted ? "^" : ""}${this.ranges.map(([a, b]) => {
 			return String.fromCodePoint(a) + (b == a + 1 ? "" : "-" + String.fromCodePoint(b));
 		})}]`;
 	}
-	eq(other: SetExpression) {
+	eq(other: SetExpression): boolean {
 		return (
 			this.inverted == other.inverted &&
 			this.ranges.length == other.ranges.length &&
@@ -460,16 +573,16 @@ export const CharClasses: { [name: string]: [number, number][] } = {
 };
 
 export class CharClass extends Expression {
-	constructor(
-		start: number,
-		readonly type: string,
-	) {
+	readonly type: string;
+
+	constructor(start: number, type: string) {
 		super(start);
+		this.type = type;
 	}
-	toString() {
+	toString(): string {
 		return "@" + this.type;
 	}
-	eq(expr: CharClass) {
+	eq(expr: CharClass): boolean {
 		return this.type == expr.type;
 	}
 }
@@ -478,21 +591,23 @@ export function exprEq(a: Expression, b: Expression): boolean {
 	return a.constructor == b.constructor && a.eq(b as any);
 }
 
-export function exprsEq(a: readonly Expression[], b: readonly Expression[]) {
+export function exprsEq(a: readonly Expression[], b: readonly Expression[]): boolean {
 	return a.length == b.length && a.every((e, i) => exprEq(e, b[i]));
 }
 
 export class Prop extends Node {
-	constructor(
-		start: number,
-		readonly at: boolean,
-		readonly name: string,
-		readonly value: readonly PropPart[],
-	) {
+	readonly at: boolean;
+	readonly name: string;
+	readonly value: readonly PropPart[];
+
+	constructor(start: number, at: boolean, name: string, value: readonly PropPart[]) {
 		super(start);
+		this.at = at;
+		this.name = name;
+		this.value = value;
 	}
 
-	eq(other: Prop) {
+	eq(other: Prop): boolean {
 		return (
 			this.name == other.name &&
 			this.value.length == other.value.length &&
@@ -500,7 +615,7 @@ export class Prop extends Node {
 		);
 	}
 
-	toString() {
+	toString(): string {
 		let result = (this.at ? "@" : "") + this.name;
 		if (this.value.length) {
 			result += "=";
@@ -510,18 +625,19 @@ export class Prop extends Node {
 		return result;
 	}
 
-	static eqProps(a: readonly Prop[], b: readonly Prop[]) {
+	static eqProps(a: readonly Prop[], b: readonly Prop[]): boolean {
 		return a.length == b.length && a.every((p, i) => p.eq(b[i]));
 	}
 }
 
 export class PropPart extends Node {
-	constructor(
-		start: number,
-		readonly value: string | null,
-		readonly name: string | null,
-	) {
+	readonly value: string | null;
+	readonly name: string | null;
+
+	constructor(start: number, value: string | null, name: string | null) {
 		super(start);
+		this.value = value;
+		this.name = name;
 	}
 }
 

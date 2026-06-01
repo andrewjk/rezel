@@ -13,10 +13,8 @@ export interface ChangedRange {
 	toB: number;
 }
 
-const enum Open {
-	Start = 1,
-	End = 2,
-}
+const Open = { Start: 1, End: 2 } as const;
+type Open = (typeof Open)[keyof typeof Open];
 
 /// Tree fragments are used during [incremental
 /// parsing](#common.Parser.startParse) to track parts of old trees
@@ -27,29 +25,38 @@ const enum Open {
 /// update fragments for document changes.
 export class TreeFragment {
 	/// @internal
-	open: Open;
+	open: number;
 
 	/// Construct a tree fragment. You'll usually want to use
 	/// [`addTree`](#common.TreeFragment^addTree) and
 	/// [`applyChanges`](#common.TreeFragment^applyChanges) instead of
 	/// calling this directly.
+	readonly from: number;
+	readonly to: number;
+	readonly tree: Tree;
+	readonly offset: number;
+
 	constructor(
 		/// The start of the unchanged range pointed to by this fragment.
 		/// This refers to an offset in the _updated_ document (as opposed
 		/// to the original tree).
-		readonly from: number,
+		from: number,
 		/// The end of the unchanged range.
-		readonly to: number,
+		to: number,
 		/// The tree that this fragment is based on.
-		readonly tree: Tree,
+		tree: Tree,
 		/// The offset between the fragment's tree and the document that
 		/// this fragment can be used against. Add this when going from
 		/// document to tree positions, subtract it to go from tree to
 		/// document positions.
-		readonly offset: number,
+		offset: number,
 		openStart: boolean = false,
 		openEnd: boolean = false,
 	) {
+		this.from = from;
+		this.to = to;
+		this.tree = tree;
+		this.offset = offset;
 		this.open = (openStart ? Open.Start : 0) | (openEnd ? Open.End : 0);
 	}
 
@@ -57,13 +64,13 @@ export class TreeFragment {
 	/// parse, or the end of a change. (In the second case, it may not
 	/// be safe to reuse some nodes at the start, depending on the
 	/// parsing algorithm.)
-	get openStart() {
+	get openStart(): boolean {
 		return (this.open & Open.Start) > 0;
 	}
 
 	/// Whether the end of the fragment represents the end of a
 	/// full-document parse, or the start of a change.
-	get openEnd() {
+	get openEnd(): boolean {
 		return (this.open & Open.End) > 0;
 	}
 
@@ -90,7 +97,7 @@ export class TreeFragment {
 		fragments: readonly TreeFragment[],
 		changes: readonly ChangedRange[],
 		minGap = 128,
-	) {
+	): readonly TreeFragment[] {
 		if (!changes.length) return fragments;
 		let result: TreeFragment[] = [];
 		let fI = 1,
@@ -184,7 +191,7 @@ export abstract class Parser {
 		input: Input | string,
 		fragments?: readonly TreeFragment[],
 		ranges?: readonly { from: number; to: number }[],
-	) {
+	): Tree {
 		let parse = this.startParse(input, fragments, ranges);
 		for (;;) {
 			let done = parse.advance();
@@ -214,7 +221,11 @@ export interface Input {
 }
 
 class StringInput implements Input {
-	constructor(readonly string: string) {}
+	readonly string: string;
+
+	constructor(string: string) {
+		this.string = string;
+	}
 
 	get length() {
 		return this.string.length;

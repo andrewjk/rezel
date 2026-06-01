@@ -1,7 +1,6 @@
-import { NodeProp, NodePropSource } from "@lezer/common";
-import { LRParser, ExternalTokenizer, LocalTokenGroup, Stack, ContextTracker } from "@lezer/lr";
-import { Action, Specialize, StateFlag, Seq, ParseState, File } from "@lezer/lr/dist/constants";
-
+import { NodeProp, NodePropSource } from "../common";
+import { LRParser, ExternalTokenizer, LocalTokenGroup, Stack, ContextTracker } from "../lr";
+import { Action, Specialize, StateFlag, Seq, ParseState, File } from "../lr/constants";
 import {
 	computeFirstSets,
 	buildFullAutomaton,
@@ -47,10 +46,12 @@ import { State, MAX_CHAR, Conflict } from "./token";
 const none: readonly any[] = [];
 
 class Parts {
-	constructor(
-		readonly terms: readonly Term[],
-		readonly conflicts: null | readonly Conflicts[],
-	) {}
+	readonly terms: readonly Term[];
+	readonly conflicts: null | readonly Conflicts[];
+	constructor(terms: readonly Term[], conflicts: null | readonly Conflicts[]) {
+		this.terms = terms;
+		this.conflicts = conflicts;
+	}
 
 	concat(other: Parts) {
 		if (this == Parts.none) return other;
@@ -87,11 +88,14 @@ function p(...terms: Term[]) {
 }
 
 class BuiltRule {
-	constructor(
-		readonly id: string,
-		readonly args: readonly Expression[],
-		readonly term: Term,
-	) {}
+	readonly id: string;
+	readonly args: readonly Expression[];
+	readonly term: Term;
+	constructor(id: string, args: readonly Expression[], term: Term) {
+		this.id = id;
+		this.args = args;
+		this.term = term;
+	}
 
 	matches(expr: NameExpression) {
 		return this.id == expr.id.name && exprsEq(expr.args, this.args);
@@ -190,10 +194,11 @@ class Builder {
 	currentSkip: Term[] = [];
 	skipRules!: Term[];
 
-	constructor(
-		text: string,
-		readonly options: BuildOptions,
-	) {
+	readonly options: BuildOptions;
+
+	constructor(text: string, options: BuildOptions) {
+		this.options = options;
+
 		time("Parse", () => {
 			this.input = new Input(text, options.fileName);
 			this.ast = this.input.parse();
@@ -562,7 +567,7 @@ class Builder {
 			(imports[src] || (imports[src] = [])).push(name);
 			return (imported[spec] = varName);
 		};
-		let lrParser = importName("LRParser", "@lezer/lr");
+		let lrParser = importName("LRParser", "../lr");
 
 		let tokenizers = rawTokenizers.map((tok) => tok.createSource(importName));
 
@@ -1400,15 +1405,31 @@ interface TokenizerSpec {
 class FinishStateContext {
 	sharedActions: SharedActions[] = [];
 
+	readonly tokenizers: TokenizerSpec[];
+	readonly data: DataBuilder;
+	readonly stateArray: Uint32Array;
+	readonly skipData: readonly number[];
+	readonly skipInfo: readonly SkipInfo[];
+	readonly states: readonly LRState[];
+	readonly builder: Builder;
+
 	constructor(
-		readonly tokenizers: TokenizerSpec[],
-		readonly data: DataBuilder,
-		readonly stateArray: Uint32Array,
-		readonly skipData: readonly number[],
-		readonly skipInfo: readonly SkipInfo[],
-		readonly states: readonly LRState[],
-		readonly builder: Builder,
-	) {}
+		tokenizers: TokenizerSpec[],
+		data: DataBuilder,
+		stateArray: Uint32Array,
+		skipData: readonly number[],
+		skipInfo: readonly SkipInfo[],
+		states: readonly LRState[],
+		builder: Builder,
+	) {
+		this.tokenizers = tokenizers;
+		this.data = data;
+		this.stateArray = stateArray;
+		this.skipData = skipData;
+		this.skipInfo = skipInfo;
+		this.states = states;
+		this.builder = builder;
+	}
 
 	findSharedActions(state: LRState): SharedActions | null {
 		if (state.actions.length < MinSharedActions) return null;
@@ -1655,10 +1676,12 @@ function computeGotoTable(states: readonly LRState[]) {
 }
 
 class TokenGroup implements TokenizerSpec {
-	constructor(
-		readonly tokens: Term[],
-		readonly groupID: number,
-	) {}
+	readonly tokens: Term[];
+	readonly groupID: number;
+	constructor(tokens: Term[], groupID: number) {
+		this.tokens = tokens;
+		this.groupID = groupID;
+	}
 	create() {
 		return this.groupID;
 	}
@@ -1687,20 +1710,27 @@ interface Namespace {
 }
 
 class TokenArg {
-	constructor(
-		readonly name: string,
-		readonly expr: Expression,
-		readonly scope: readonly TokenArg[],
-	) {}
+	readonly name: string;
+	readonly expr: Expression;
+	readonly scope: readonly TokenArg[];
+	constructor(name: string, expr: Expression, scope: readonly TokenArg[]) {
+		this.name = name;
+		this.expr = expr;
+		this.scope = scope;
+	}
 }
 
 class BuildingRule {
-	constructor(
-		readonly name: string,
-		readonly start: State,
-		readonly to: State,
-		readonly args: readonly Expression[],
-	) {}
+	readonly name: string;
+	readonly start: State;
+	readonly to: State;
+	readonly args: readonly Expression[];
+	constructor(name: string, start: State, to: State, args: readonly Expression[]) {
+		this.name = name;
+		this.start = start;
+		this.to = to;
+		this.args = args;
+	}
 }
 
 class TokenSet {
@@ -1711,10 +1741,11 @@ class TokenSet {
 	byDialect: { [dialect: number]: Term[] } = Object.create(null);
 	precedenceRelations: readonly { term: Term; after: readonly Term[] }[] = [];
 
-	constructor(
-		readonly b: Builder,
-		readonly ast: TokenDeclaration | LocalTokenDeclaration | null,
-	) {
+	readonly b: Builder;
+	readonly ast: TokenDeclaration | LocalTokenDeclaration | null;
+	constructor(b: Builder, ast: TokenDeclaration | LocalTokenDeclaration | null) {
+		this.b = b;
+		this.ast = ast;
 		this.rules = ast ? ast.rules : none;
 		for (let rule of this.rules) b.unique(rule.id);
 	}
@@ -1913,7 +1944,7 @@ class TokenSet {
 
 class MainTokenSet extends TokenSet {
 	explicitConflicts: { a: Term; b: Term }[] = [];
-	ast!: TokenDeclaration | null;
+	declare ast: TokenDeclaration | null;
 
 	getLiteral(expr: LiteralExpression) {
 		let id = JSON.stringify(expr.value);
@@ -2077,7 +2108,7 @@ class MainTokenSet extends TokenSet {
 
 class LocalTokenSet extends TokenSet {
 	fallback: Term | null = null;
-	ast!: LocalTokenDeclaration;
+	declare ast: LocalTokenDeclaration;
 
 	constructor(b: Builder, ast: LocalTokenDeclaration) {
 		super(b, ast);
@@ -2168,7 +2199,7 @@ class LocalTokenSet extends TokenSet {
 			create: () =>
 				new LocalTokenGroup(fullData, precOffset, this.fallback ? this.fallback.id : undefined),
 			createSource: (importName) =>
-				`new ${importName("LocalTokenGroup", "@lezer/lr")}(${encodeArray(fullData)}, ${precOffset}${
+				`new ${importName("LocalTokenGroup", "../lr")}(${encodeArray(fullData)}, ${precOffset}${
 					this.fallback ? `, ${this.fallback.id}` : ""
 				})`,
 		};
@@ -2291,10 +2322,11 @@ function addRel(rel: { term: Term; after: readonly Term[] }[], term: Term, after
 class ExternalTokenSet implements TokenizerSpec {
 	tokens: { [name: string]: Term };
 
-	constructor(
-		readonly b: Builder,
-		readonly ast: ExternalTokenDeclaration,
-	) {
+	readonly b: Builder;
+	readonly ast: ExternalTokenDeclaration;
+	constructor(b: Builder, ast: ExternalTokenDeclaration) {
+		this.b = b;
+		this.ast = ast;
 		this.tokens = gatherExtTokens(b, ast.tokens);
 		for (let name in this.tokens) this.b.tokenOrigins[this.tokens[name].name] = { external: this };
 	}
@@ -2359,10 +2391,11 @@ class ExternalSpecializer {
 	term: Term | null = null;
 	tokens: { [name: string]: Term };
 
-	constructor(
-		readonly b: Builder,
-		readonly ast: ExternalSpecializeDeclaration,
-	) {
+	readonly b: Builder;
+	readonly ast: ExternalSpecializeDeclaration;
+	constructor(b: Builder, ast: ExternalSpecializeDeclaration) {
+		this.b = b;
+		this.ast = ast;
 		this.tokens = gatherExtTokens(b, ast.tokens);
 	}
 

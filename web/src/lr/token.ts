@@ -1,5 +1,4 @@
-import { Input } from "@lezer/common";
-
+import { Input } from "../common";
 import { Seq } from "./constants";
 import { decodeArray } from "./decode";
 import { Stack } from "./stack";
@@ -36,7 +35,7 @@ export class InputStream {
 	next: number = -1;
 
 	/// @internal
-	token = nullToken;
+	token: CachedToken = nullToken;
 
 	/// The current position of the stream. Note that, due to parses
 	/// being able to cover non-contiguous
@@ -50,13 +49,13 @@ export class InputStream {
 	private rangeIndex = 0;
 	private range: { from: number; to: number };
 
+	readonly input: Input;
+	readonly ranges: readonly { from: number; to: number }[];
+
 	/// @internal
-	constructor(
-		/// @internal
-		readonly input: Input,
-		/// @internal
-		readonly ranges: readonly { from: number; to: number }[],
-	) {
+	constructor(input: Input, ranges: readonly { from: number; to: number }[]) {
+		this.input = input;
+		this.ranges = ranges;
 		this.pos = this.chunkPos = ranges[0].from;
 		this.range = ranges[0];
 		this.end = ranges[ranges.length - 1].to;
@@ -64,7 +63,7 @@ export class InputStream {
 	}
 
 	/// @internal
-	resolveOffset(offset: number, assoc: -1 | 1) {
+	resolveOffset(offset: number, assoc: -1 | 1): number | null {
 		let range = this.range,
 			index = this.rangeIndex;
 		let pos = this.pos + offset;
@@ -84,7 +83,7 @@ export class InputStream {
 	}
 
 	/// @internal
-	clipPos(pos: number) {
+	clipPos(pos: number): number {
 		if (pos >= this.range.from && pos < this.range.to) return pos;
 		for (let range of this.ranges) if (range.to > pos) return Math.max(pos, range.from);
 		return this.end;
@@ -99,7 +98,7 @@ export class InputStream {
 	/// effectiveness incremental parsing—when looking forward—or even
 	/// cause invalid reparses when looking backward more than 25 code
 	/// units, since the library does not track lookbehind.
-	peek(offset: number) {
+	peek(offset: number): number {
 		let idx = this.chunkOff + offset,
 			pos,
 			result;
@@ -128,7 +127,7 @@ export class InputStream {
 	/// Accept a token. By default, the end of the token is set to the
 	/// current stream position, but you can pass an offset (relative to
 	/// the stream position) to change that.
-	acceptToken(token: number, endOffset = 0) {
+	acceptToken(token: number, endOffset = 0): void {
 		let end = endOffset ? this.resolveOffset(endOffset, -1) : this.pos;
 		if (end == null || end < this.token.start) throw new RangeError("Token end out of bounds");
 		this.token.value = token;
@@ -136,7 +135,7 @@ export class InputStream {
 	}
 
 	/// Accept a token ending at a specific given position.
-	acceptTokenTo(token: number, endPos: number) {
+	acceptTokenTo(token: number, endPos: number): void {
 		this.token.value = token;
 		this.token.end = endPos;
 	}
@@ -170,7 +169,7 @@ export class InputStream {
 
 	/// Move the stream forward N (defaults to 1) code units. Returns
 	/// the new value of [`next`](#lr.InputStream.next).
-	advance(n = 1) {
+	advance(n = 1): number {
 		this.chunkOff += n;
 		while (this.pos + n >= this.range.to) {
 			if (this.rangeIndex == this.ranges.length - 1) return this.setDone();
@@ -191,7 +190,7 @@ export class InputStream {
 	}
 
 	/// @internal
-	reset(pos: number, token?: CachedToken) {
+	reset(pos: number, token?: CachedToken): this {
 		if (token) {
 			this.token = token;
 			token.start = pos;
@@ -220,7 +219,7 @@ export class InputStream {
 	}
 
 	/// @internal
-	read(from: number, to: number) {
+	read(from: number, to: number): string {
 		if (from >= this.chunkPos && to <= this.chunkPos + this.chunk.length)
 			return this.chunk.slice(from - this.chunkPos, to - this.chunkPos);
 		if (from >= this.chunk2Pos && to <= this.chunk2Pos + this.chunk2.length)
@@ -252,12 +251,15 @@ export class TokenGroup implements Tokenizer {
 	fallback!: boolean;
 	extend!: boolean;
 
-	constructor(
-		readonly data: Readonly<Uint16Array>,
-		readonly id: number,
-	) {}
+	readonly data: Readonly<Uint16Array>;
+	readonly id: number;
 
-	token(input: InputStream, stack: Stack) {
+	constructor(data: Readonly<Uint16Array>, id: number) {
+		this.data = data;
+		this.id = id;
+	}
+
+	token(input: InputStream, stack: Stack): void {
 		let { parser } = stack.p;
 		readToken(this.data, input, stack, this.id, parser.data, parser.tokenPrecTable);
 	}
@@ -274,16 +276,16 @@ export class LocalTokenGroup implements Tokenizer {
 	fallback!: boolean;
 	extend!: boolean;
 	readonly data: Readonly<Uint16Array>;
+	readonly precTable: number;
+	readonly elseToken?: number;
 
-	constructor(
-		data: Readonly<Uint16Array> | string,
-		readonly precTable: number,
-		readonly elseToken?: number,
-	) {
+	constructor(data: Readonly<Uint16Array> | string, precTable: number, elseToken?: number) {
+		this.precTable = precTable;
+		this.elseToken = elseToken;
 		this.data = typeof data == "string" ? decodeArray<Readonly<Uint16Array>>(data) : data;
 	}
 
-	token(input: InputStream, stack: Stack) {
+	token(input: InputStream, stack: Stack): void {
 		let start = input.pos,
 			skipped = 0;
 		for (;;) {
@@ -335,16 +337,15 @@ export class ExternalTokenizer {
 	/// @internal
 	extend: boolean;
 
+	readonly token: (input: InputStream, stack: Stack) => void;
+
 	/// Create a tokenizer. The first argument is the function that,
 	/// given an input stream, scans for the types of tokens it
 	/// recognizes at the stream's position, and calls
 	/// [`acceptToken`](#lr.InputStream.acceptToken) when it finds
 	/// one.
-	constructor(
-		/// @internal
-		readonly token: (input: InputStream, stack: Stack) => void,
-		options: ExternalOptions = {},
-	) {
+	constructor(token: (input: InputStream, stack: Stack) => void, options: ExternalOptions = {}) {
+		this.token = token;
 		this.contextual = !!options.contextual;
 		this.fallback = !!options.fallback;
 		this.extend = !!options.extend;

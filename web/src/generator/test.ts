@@ -1,14 +1,23 @@
-import { Tree, NodeType, NodeProp, Parser } from "@lezer/common";
+import { Tree, NodeType, NodeProp, Parser } from "../common";
 
 const none: readonly any[] = [];
 
 class TestSpec {
+	readonly name: string;
+	readonly props: { prop: NodeProp<any>; value: any }[];
+	readonly children: readonly TestSpec[] = none;
+	readonly wildcard: boolean = false;
 	constructor(
-		readonly name: string,
-		readonly props: { prop: NodeProp<any>; value: any }[],
-		readonly children: readonly TestSpec[] = none,
-		readonly wildcard = false,
-	) {}
+		name: string,
+		props: { prop: NodeProp<any>; value: any }[],
+		children: readonly TestSpec[] = none,
+		wildcard: boolean = false,
+	) {
+		this.name = name;
+		this.props = props;
+		this.children = children;
+		this.wildcard = wildcard;
+	}
 
 	static parse(spec: string): readonly TestSpec[] {
 		let pos = 0,
@@ -100,11 +109,15 @@ class TestSpec {
 	}
 }
 
-function defaultIgnore(type: NodeType) {
+function defaultIgnore(type: NodeType): boolean {
 	return /\W/.test(type.name);
 }
 
-export function testTree(tree: Tree, expect: string, mayIgnore = defaultIgnore) {
+export function testTree(
+	tree: Tree,
+	expect: string,
+	mayIgnore: typeof defaultIgnore = defaultIgnore,
+): void {
 	let specs = TestSpec.parse(expect);
 	let stack = [specs],
 		pos = [0];
@@ -171,7 +184,19 @@ function toLineContext(file: string, index: number) {
 		.join("\n");
 }
 
-export function fileTests(file: string, fileName: string, mayIgnore = defaultIgnore) {
+export function fileTests(
+	file: string,
+	fileName: string,
+	mayIgnore: typeof defaultIgnore = defaultIgnore,
+): {
+	name: string;
+	text: string;
+	expected: string;
+	configStr: string;
+	config: object;
+	strict: boolean;
+	run(parser: Parser): void;
+}[] {
 	let caseExpr = /\s*#[ \t]*(.*)(?:\r\n|\r|\n)([^]*?)==+>([^]*?)(?:$|(?:\r\n|\r|\n)+(?=#))/gy;
 	let tests: {
 		name: string;

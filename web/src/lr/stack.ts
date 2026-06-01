@@ -1,64 +1,88 @@
-import { Tree, BufferCursor } from "@lezer/common";
-
+import { Tree, BufferCursor } from "../common";
 import { Action, Term, StateFlag, ParseState, Seq } from "./constants";
-import { Parse, ContextTracker } from "./parse";
+import { Parse, ContextTracker, LRParser } from "./parse";
 
-export const enum Lookahead {
+export const Lookahead = {
 	// Every token is assumed to have looked this far ahead, so that
 	// small lookahead values don't have to be separately stored.
 	// Lookaheads further than this are attached to the tree with props.
-	Margin = 25,
-}
+	Margin: 25,
+} as const;
+export type Lookahead = (typeof Lookahead)[keyof typeof Lookahead];
 
 /// A parse stack. These are used internally by the parser to track
 /// parsing progress. They also provide some properties and methods
 /// that external code such as a tokenizer can use to get information
 /// about the parse state.
 export class Stack {
+	/// The parse that this stack is part of @internal
+	readonly p: Parse;
+	/// Holds state, input pos, buffer index triplets for all but the
+	/// top state @internal
+	readonly stack: number[];
+	/// The current parse state @internal
+	public state: number;
+	// The position at which the next reduce should take place. This
+	// can be less than `this.pos` when skipped expressions have been
+	// added to the stack (which should be moved outside of the next
+	// reduction)
+	/// @internal
+	public reducePos: number;
+	/// The input position up to which this stack has parsed.
+	public pos: number;
+	/// The dynamic score of the stack, including dynamic precedence
+	/// and error-recovery penalties
+	/// @internal
+	public score: number;
+	// The output buffer. Holds (type, start, end, size) quads
+	// representing nodes created by the parser, where `size` is
+	// amount of buffer array entries covered by this node.
+	/// @internal
+	public buffer: number[];
+	// The base offset of the buffer. When stacks are split, the split
+	// instance shared the buffer history with its parent up to
+	// `bufferBase`, which is the absolute offset (including the
+	// offset of previous splits) into the buffer at which this stack
+	// starts writing.
+	/// @internal
+	public bufferBase: number;
+	/// @internal
+	public curContext: StackContext | null;
+	/// @internal
+	public lookAhead: number;
+	// A parent stack from which this was split off, if any. This is
+	// set up so that it always points to a stack that has some
+	// additional buffer content, never to a stack with an equal
+	// `bufferBase`.
+	/// @internal
+	public parent: Stack | null;
+
 	/// @internal
 	constructor(
-		/// The parse that this stack is part of @internal
-		readonly p: Parse,
-		/// Holds state, input pos, buffer index triplets for all but the
-		/// top state @internal
-		readonly stack: number[],
-		/// The current parse state @internal
-		public state: number,
-		// The position at which the next reduce should take place. This
-		// can be less than `this.pos` when skipped expressions have been
-		// added to the stack (which should be moved outside of the next
-		// reduction)
-		/// @internal
-		public reducePos: number,
-		/// The input position up to which this stack has parsed.
-		public pos: number,
-		/// The dynamic score of the stack, including dynamic precedence
-		/// and error-recovery penalties
-		/// @internal
-		public score: number,
-		// The output buffer. Holds (type, start, end, size) quads
-		// representing nodes created by the parser, where `size` is
-		// amount of buffer array entries covered by this node.
-		/// @internal
-		public buffer: number[],
-		// The base offset of the buffer. When stacks are split, the split
-		// instance shared the buffer history with its parent up to
-		// `bufferBase`, which is the absolute offset (including the
-		// offset of previous splits) into the buffer at which this stack
-		// starts writing.
-		/// @internal
-		public bufferBase: number,
-		/// @internal
-		public curContext: StackContext | null,
-		/// @internal
-		public lookAhead = 0,
-		// A parent stack from which this was split off, if any. This is
-		// set up so that it always points to a stack that has some
-		// additional buffer content, never to a stack with an equal
-		// `bufferBase`.
-		/// @internal
-		public parent: Stack | null,
-	) {}
+		p: Parse,
+		stack: number[],
+		state: number,
+		reducePos: number,
+		pos: number,
+		score: number,
+		buffer: number[],
+		bufferBase: number,
+		curContext: StackContext | null,
+		lookAhead = 0,
+		parent: Stack | null,
+	) {
+		this.p = p;
+		this.stack = stack;
+		this.state = state;
+		this.reducePos = reducePos;
+		this.pos = pos;
+		this.score = score;
+		this.buffer = buffer;
+		this.bufferBase = bufferBase;
+		this.curContext = curContext;
+		this.lookAhead = lookAhead;
+		this.parent = parent;
+	}
 
 	/// @internal
 	toString() {
@@ -67,7 +91,7 @@ export class Stack {
 
 	// Start an empty stack
 	/// @internal
-	static start(p: Parse, state: number, pos = 0) {
+	static start(p: Parse, state: number, pos = 0): Stack {
 		let cx = p.parser.context;
 		return new Stack(
 			p,
@@ -88,21 +112,21 @@ export class Stack {
 	/// any. Its type will depend on the context tracker's type
 	/// parameter, or it will be `null` if there is no context
 	/// tracker.
-	get context() {
+	get context(): any {
 		return this.curContext ? this.curContext.context : null;
 	}
 
 	// Push a state onto the stack, tracking its start position as well
 	// as the buffer base at that point.
 	/// @internal
-	pushState(state: number, start: number) {
+	pushState(state: number, start: number): void {
 		this.stack.push(this.state, start, this.bufferBase + this.buffer.length);
 		this.state = state;
 	}
 
 	// Apply a reduce action
 	/// @internal
-	reduce(action: number) {
+	reduce(action: number): void {
 		let depth = action >> Action.ReduceDepthShift,
 			type = action & Action.ValueMask;
 		let { parser } = this.p;
@@ -169,7 +193,7 @@ export class Stack {
 
 	// Shift a value into the buffer
 	/// @internal
-	storeNode(term: number, start: number, end: number, size = 4, mustSink = false) {
+	storeNode(term: number, start: number, end: number, size = 4, mustSink = false): void {
 		if (
 			term == Term.Err &&
 			(!this.stack.length ||
@@ -220,7 +244,7 @@ export class Stack {
 
 	// Apply a shift action
 	/// @internal
-	shift(action: number, type: number, start: number, end: number) {
+	shift(action: number, type: number, start: number, end: number): void {
 		if (action & Action.GotoFlag) {
 			this.pushState(action & Action.ValueMask, this.pos);
 		} else if ((action & Action.StayFlag) == 0) {
@@ -244,14 +268,14 @@ export class Stack {
 
 	// Apply an action
 	/// @internal
-	apply(action: number, next: number, nextStart: number, nextEnd: number) {
+	apply(action: number, next: number, nextStart: number, nextEnd: number): void {
 		if (action & Action.ReduceFlag) this.reduce(action);
 		else this.shift(action, next, nextStart, nextEnd);
 	}
 
 	// Add a prebuilt (reused) node into the buffer.
 	/// @internal
-	useNode(value: Tree, next: number) {
+	useNode(value: Tree, next: number): void {
 		let index = this.p.reused.length - 1;
 		if (index < 0 || this.p.reused[index] != value) {
 			this.p.reused.push(value);
@@ -281,7 +305,7 @@ export class Stack {
 	// that `this.stack` tends to stay quite shallow, this isn't very
 	// expensive.
 	/// @internal
-	split() {
+	split(): Stack {
 		let parent: Stack | null = this;
 		let off = parent.buffer.length;
 		// Leave off top error node, if there, because that might be
@@ -313,7 +337,7 @@ export class Stack {
 
 	// Try to recover from an error by 'deleting' (ignoring) one token.
 	/// @internal
-	recoverByDelete(next: number, nextEnd: number) {
+	recoverByDelete(next: number, nextEnd: number): void {
 		let isNode = next <= this.p.parser.maxNode;
 		if (isNode) this.storeNode(next, this.pos, nextEnd, 4);
 		this.storeNode(Term.Err, this.pos, nextEnd, isNode ? 8 : 4);
@@ -325,7 +349,7 @@ export class Stack {
 	/// after some reductions) on this stack. This can be useful for
 	/// external tokenizers that want to make sure they only provide a
 	/// given token when it applies.
-	canShift(term: number) {
+	canShift(term: number): boolean {
 		for (let sim = new SimulatedStack(this); ; ) {
 			let action =
 				this.p.parser.stateSlot(sim.state, ParseState.DefaultReduce) ||
@@ -377,7 +401,7 @@ export class Stack {
 	// Force a reduce, if possible. Return false if that can't
 	// be done.
 	/// @internal
-	forceReduce() {
+	forceReduce(): boolean {
 		let { parser } = this.p;
 		let reduce = parser.stateSlot(this.state, ParseState.ForcedReduce);
 		if ((reduce & Action.ReduceFlag) == 0) return false;
@@ -401,7 +425,7 @@ export class Stack {
 	/// Try to scan through the automaton to find some kind of reduction
 	/// that can be applied. Used when the regular ForcedReduce field
 	/// isn't a valid action. @internal
-	findForcedReduction() {
+	findForcedReduction(): number | void {
 		let { parser } = this.p,
 			seen: number[] = [];
 		let explore = (state: number, depth: number): number | void => {
@@ -427,7 +451,7 @@ export class Stack {
 	}
 
 	/// @internal
-	forceAll() {
+	forceAll(): this {
 		while (!this.p.parser.stateFlag(this.state, StateFlag.Accepting)) {
 			if (!this.forceReduce()) {
 				this.storeNode(Term.Err, this.pos, this.pos, 4, true);
@@ -440,7 +464,7 @@ export class Stack {
 	/// Check whether this state has no further actions (assumed to be a direct descendant of the
 	/// top state, since any other states must be able to continue
 	/// somehow). @internal
-	get deadEnd() {
+	get deadEnd(): boolean {
 		if (this.stack.length != 3) return false;
 		let { parser } = this.p;
 		return (
@@ -452,14 +476,14 @@ export class Stack {
 	/// Restart the stack (put it back in its start state). Only safe
 	/// when this.stack.length == 3 (state is directly below the top
 	/// state). @internal
-	restart() {
+	restart(): void {
 		this.storeNode(Term.Err, this.pos, this.pos, 4, true);
 		this.state = this.stack[0];
 		this.stack.length = 0;
 	}
 
 	/// @internal
-	sameState(other: Stack) {
+	sameState(other: Stack): boolean {
 		if (this.state != other.state || this.stack.length != other.stack.length) return false;
 		for (let i = 0; i < this.stack.length; i += 3)
 			if (this.stack[i] != other.stack[i]) return false;
@@ -467,13 +491,13 @@ export class Stack {
 	}
 
 	/// Get the parser used by this stack.
-	get parser() {
+	get parser(): LRParser {
 		return this.p.parser;
 	}
 
 	/// Test whether a given dialect (by numeric ID, as exported from
 	/// the terms file) is enabled.
-	dialectEnabled(dialectID: number) {
+	dialectEnabled(dialectID: number): boolean {
 		return this.p.parser.dialect.flags[dialectID];
 	}
 
@@ -509,7 +533,7 @@ export class Stack {
 	}
 
 	/// @internal
-	emitLookAhead() {
+	emitLookAhead(): void {
 		let last = this.buffer.length - 1;
 		if (last < 0 || this.buffer[last] != -4)
 			this.buffer.push(this.lookAhead, this.pos, this.pos, -4);
@@ -524,7 +548,7 @@ export class Stack {
 	}
 
 	/// @internal
-	setLookAhead(lookAhead: number) {
+	setLookAhead(lookAhead: number): boolean {
 		if (lookAhead <= this.lookAhead) return false;
 		this.emitLookAhead();
 		this.lookAhead = lookAhead;
@@ -532,7 +556,7 @@ export class Stack {
 	}
 
 	/// @internal
-	close() {
+	close(): void {
 		if (this.curContext && this.curContext!.tracker.strict) this.emitContext();
 		if (this.lookAhead > 0) this.emitLookAhead();
 	}
@@ -540,23 +564,25 @@ export class Stack {
 
 class StackContext {
 	readonly hash: number;
-	constructor(
-		readonly tracker: ContextTracker<any>,
-		readonly context: any,
-	) {
+	readonly tracker: ContextTracker<any>;
+	readonly context: any;
+	constructor(tracker: ContextTracker<any>, context: any) {
+		this.tracker = tracker;
+		this.context = context;
 		this.hash = tracker.strict ? tracker.hash(context) : 0;
 	}
 }
 
-export const enum Recover {
-	Insert = 200,
-	Delete = 190,
-	Reduce = 100,
-	MaxNext = 4,
-	MaxInsertStackDepth = 300,
-	DampenInsertStackDepth = 120,
-	MinBigReduction = 2000,
-}
+export const Recover = {
+	Insert: 200,
+	Delete: 190,
+	Reduce: 100,
+	MaxNext: 4,
+	MaxInsertStackDepth: 300,
+	DampenInsertStackDepth: 120,
+	MinBigReduction: 2000,
+} as const;
+export type Recover = (typeof Recover)[keyof typeof Recover];
 
 // Used to cheaply run some reductions to scan ahead without mutating
 // an entire stack
@@ -564,8 +590,10 @@ class SimulatedStack {
 	state: number;
 	stack: number[];
 	base: number;
+	readonly start: Stack;
 
-	constructor(readonly start: Stack) {
+	constructor(start: Stack) {
+		this.start = start;
 		this.state = start.state;
 		this.stack = start.stack;
 		this.base = this.stack.length;
@@ -590,21 +618,26 @@ class SimulatedStack {
 // the parent-stack-walking necessary to read the nodes.
 export class StackBufferCursor implements BufferCursor {
 	buffer: number[];
+	public stack: Stack;
+	public pos: number;
+	public index: number;
 
-	constructor(
-		public stack: Stack,
-		public pos: number,
-		public index: number,
-	) {
+	constructor(stack: Stack, pos: number, index: number) {
+		this.stack = stack;
+		this.pos = pos;
+		this.index = index;
 		this.buffer = stack.buffer;
 		if (this.index == 0) this.maybeNext();
 	}
 
-	static create(stack: Stack, pos = stack.bufferBase + stack.buffer.length) {
+	static create(
+		stack: Stack,
+		pos: number = stack.bufferBase + stack.buffer.length,
+	): StackBufferCursor {
 		return new StackBufferCursor(stack, pos, pos - stack.bufferBase);
 	}
 
-	maybeNext() {
+	maybeNext(): void {
 		let next = this.stack.parent;
 		if (next != null) {
 			this.index = this.stack.bufferBase - next.bufferBase;
@@ -613,26 +646,26 @@ export class StackBufferCursor implements BufferCursor {
 		}
 	}
 
-	get id() {
+	get id(): number {
 		return this.buffer[this.index - 4];
 	}
-	get start() {
+	get start(): number {
 		return this.buffer[this.index - 3];
 	}
-	get end() {
+	get end(): number {
 		return this.buffer[this.index - 2];
 	}
-	get size() {
+	get size(): number {
 		return this.buffer[this.index - 1];
 	}
 
-	next() {
+	next(): void {
 		this.index -= 4;
 		this.pos -= 4;
 		if (this.index == 0) this.maybeNext();
 	}
 
-	fork() {
+	fork(): StackBufferCursor {
 		return new StackBufferCursor(this.stack, this.pos, this.index);
 	}
 }

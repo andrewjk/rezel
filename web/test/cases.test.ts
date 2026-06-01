@@ -2,13 +2,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { fileURLToPath } from "url";
 
-import { NodeProp } from "@lezer/common";
-import { LRParser, ExternalTokenizer, InputStream } from "@lezer/lr";
 import ist from "ist";
+import { describe, it } from "vitest";
 
-import { buildParser } from "../dist/index.js";
-// @ts-ignore
-import { fileTests } from "../dist/test.js";
+import { NodeProp } from "../src/common";
+import { buildParser } from "../src/generator";
+import { fileTests } from "../src/generator/test";
+import { LRParser, ExternalTokenizer, InputStream } from "../src/lr";
 
 let caseDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases");
 
@@ -56,7 +56,7 @@ describe("Cases", () => {
 					externalTokenizer,
 					externalSpecializer,
 					externalProp,
-					warn(msg) {
+					warn(msg: string | undefined) {
 						throw new Error(msg);
 					},
 				});

@@ -12,7 +12,7 @@
 //
 // - The digits in a number are ordered from high to low significance.
 
-import { Encode } from "@lezer/lr/dist/constants";
+import { Encode } from "../lr/constants";
 
 function digitToChar(digit: number) {
 	let ch = digit + Encode.Start;
@@ -21,11 +21,11 @@ function digitToChar(digit: number) {
 	return String.fromCharCode(ch);
 }
 
-export function encode(value: number, max = 0xffff) {
+export function encode(value: number, max = 0xffff): string {
 	if (value > max) throw new Error("Trying to encode a number that's too big: " + value);
 	if (value == Encode.BigVal) return String.fromCharCode(Encode.BigValCode);
 	let result = "";
-	for (let first = Encode.Base; ; first = 0 as Encode) {
+	for (let first: Encode = Encode.Base; ; first = 0 as Encode) {
 		let low = value % Encode.Base,
 			rest = value - low;
 		result = digitToChar(low + first) + result;
@@ -38,7 +38,7 @@ export function encode(value: number, max = 0xffff) {
 export function encodeArray(
 	values: { length: number; readonly [i: number]: number },
 	max = 0xffff,
-) {
+): string {
 	let result = '"' + encode(values.length, 0xffffffff);
 	for (let i = 0; i < values.length; i++) result += encode(values[i], max);
 	result += '"';

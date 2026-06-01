@@ -6,17 +6,31 @@ import { timing } from "./log";
 export class Pos {
 	hash: number = 0;
 
-	constructor(
-		readonly rule: Rule,
-		readonly pos: number,
-		// NOTE `ahead` and `ambigAhead` aren't mutated anymore after `finish()` has been called
-		readonly ahead: Term[],
-		public ambigAhead: readonly string[],
-		readonly skipAhead: Term,
-		readonly via: Pos | null,
-	) {}
+	readonly rule: Rule;
+	readonly pos: number;
+	readonly ahead: Term[];
+	public ambigAhead: readonly string[];
+	readonly skipAhead: Term;
+	readonly via: Pos | null;
 
-	finish() {
+	constructor(
+		rule: Rule,
+		pos: number,
+		ahead: Term[],
+		// NOTE `ahead` and `ambigAhead` aren't mutated anymore after `finish()` has been called
+		ambigAhead: readonly string[],
+		skipAhead: Term,
+		via: Pos | null,
+	) {
+		this.rule = rule;
+		this.pos = pos;
+		this.ahead = ahead;
+		this.ambigAhead = ambigAhead;
+		this.skipAhead = skipAhead;
+		this.via = via;
+	}
+
+	finish(): this {
 		let h = hash(hash(this.rule.id, this.pos), this.skipAhead.hash);
 		for (let a of this.ahead) h = hash(h, a.hash);
 		for (let group of this.ambigAhead) h = hashString(h, group);
@@ -24,11 +38,11 @@ export class Pos {
 		return this;
 	}
 
-	get next() {
+	get next(): Term | null {
 		return this.pos < this.rule.parts.length ? this.rule.parts[this.pos] : null;
 	}
 
-	advance() {
+	advance(): Pos {
 		return new Pos(
 			this.rule,
 			this.pos + 1,
@@ -39,11 +53,11 @@ export class Pos {
 		).finish();
 	}
 
-	get skip() {
+	get skip(): Term {
 		return this.pos == this.rule.parts.length ? this.skipAhead : this.rule.skip;
 	}
 
-	cmp(pos: Pos) {
+	cmp(pos: Pos): number {
 		return (
 			this.rule.cmp(pos.rule) ||
 			this.pos - pos.pos ||
@@ -53,7 +67,7 @@ export class Pos {
 		);
 	}
 
-	eqSimple(pos: Pos) {
+	eqSimple(pos: Pos): boolean {
 		return pos.rule == this.rule && pos.pos == this.pos;
 	}
 
@@ -63,7 +77,7 @@ export class Pos {
 		return `${this.rule.name} -> ${parts.join(" ")}`;
 	}
 
-	eq(other: Pos) {
+	eq(other: Pos): boolean {
 		return (
 			this == other ||
 			(this.hash == other.hash &&
@@ -75,7 +89,7 @@ export class Pos {
 		);
 	}
 
-	trail(maxLen: number = 60) {
+	trail(maxLen: number = 60): string {
 		let result = [];
 		for (let pos: Pos | null = this; pos; pos = pos.via) {
 			for (let i = pos.pos - 1; i >= 0; i--) result.push(pos.rule.parts[i]);
@@ -85,14 +99,14 @@ export class Pos {
 		return value;
 	}
 
-	conflicts(pos = this.pos) {
+	conflicts(pos: number = this.pos): Conflicts {
 		let result = this.rule.conflicts[pos];
 		if (pos == this.rule.parts.length && this.ambigAhead.length)
 			result = result.join(new Conflicts(0, this.ambigAhead));
 		return result;
 	}
 
-	static addOrigins(group: readonly Pos[], context: readonly Pos[]) {
+	static addOrigins(group: readonly Pos[], context: readonly Pos[]): Pos[] {
 		let result = group.slice();
 		for (let i = 0; i < result.length; i++) {
 			let next = result[i];
@@ -166,10 +180,13 @@ function sameSet<T>(a: readonly T[], b: readonly T[]) {
 }
 
 export class Shift {
-	constructor(
-		readonly term: Term,
-		readonly target: State,
-	) {}
+	readonly term: Term;
+	readonly target: State;
+
+	constructor(term: Term, target: State) {
+		this.term = term;
+		this.target = target;
+	}
 
 	eq(other: Shift | Reduce): boolean {
 		return other instanceof Shift && this.term == other.term && other.target.id == this.target.id;
@@ -181,25 +198,28 @@ export class Shift {
 			: this.term.id - other.term.id || this.target.id - other.target.id;
 	}
 
-	matches(other: Shift | Reduce, mapping: readonly number[]) {
+	matches(other: Shift | Reduce, mapping: readonly number[]): boolean {
 		return other instanceof Shift && mapping[other.target.id] == mapping[this.target.id];
 	}
 
-	toString() {
+	toString(): string {
 		return "s" + this.target.id;
 	}
 
-	map(mapping: readonly number[], states: readonly State[]) {
+	map(mapping: readonly number[], states: readonly State[]): Shift {
 		let mapped = states[mapping[this.target.id]];
 		return mapped == this.target ? this : new Shift(this.term, mapped);
 	}
 }
 
 export class Reduce {
-	constructor(
-		readonly term: Term,
-		readonly rule: Rule,
-	) {}
+	readonly term: Term;
+	readonly rule: Rule;
+
+	constructor(term: Term, rule: Rule) {
+		this.term = term;
+		this.rule = rule;
+	}
 
 	eq(other: Shift | Reduce): boolean {
 		return other instanceof Reduce && this.term == other.term && other.rule.sameReduce(this.rule);
@@ -213,7 +233,7 @@ export class Reduce {
 					this.rule.parts.length - other.rule.parts.length;
 	}
 
-	matches(other: Shift | Reduce, mapping: readonly number[]) {
+	matches(other: Shift | Reduce, _mapping: readonly number[]): boolean {
 		return other instanceof Reduce && other.rule.sameReduce(this.rule);
 	}
 
@@ -221,7 +241,7 @@ export class Reduce {
 		return `${this.rule.name.name}(${this.rule.parts.length})`;
 	}
 
-	map() {
+	map(): this {
 		return this;
 	}
 }
@@ -234,7 +254,10 @@ function hashPositions(set: readonly Pos[]) {
 
 class ConflictContext {
 	conflicts: Conflict[] = [];
-	constructor(readonly first: { [name: string]: (Term | null)[] }) {}
+	readonly first: { [name: string]: (Term | null)[] };
+	constructor(first: { [name: string]: (Term | null)[] }) {
+		this.first = first;
+	}
 }
 
 export class State {
@@ -243,17 +266,30 @@ export class State {
 	goto: Shift[] = [];
 	tokenGroup: number = -1;
 	defaultReduce: Rule | null = null;
+	public id: number;
+	public set: readonly Pos[];
+	public flags = 0;
+	readonly skip: Term;
+	readonly hash: number;
+	readonly startRule: Term | null;
 
 	constructor(
-		public id: number,
-		public set: readonly Pos[],
-		public flags = 0,
-		readonly skip: Term,
-		readonly hash = hashPositions(set),
-		readonly startRule: Term | null = null,
-	) {}
+		id: number,
+		set: readonly Pos[],
+		flags = 0,
+		skip: Term,
+		hash: number = hashPositions(set),
+		startRule: Term | null = null,
+	) {
+		this.id = id;
+		this.set = set;
+		this.flags = flags;
+		this.skip = skip;
+		this.hash = hash;
+		this.startRule = startRule;
+	}
 
-	toString() {
+	toString(): string {
 		let actions =
 			this.actions.map((t) => t.term + "=" + t).join(",") +
 			(this.goto.length ? " | " + this.goto.map((g) => g.term + "=" + g).join(",") : "");
@@ -304,7 +340,7 @@ export class State {
 		return null;
 	}
 
-	addAction(value: Shift | Reduce, positions: readonly Pos[], context: ConflictContext) {
+	addAction(value: Shift | Reduce, positions: readonly Pos[], context: ConflictContext): void {
 		let conflict = this.addActionInner(value, positions);
 		if (conflict) {
 			let conflictPos = this.actionPositions[this.actions.indexOf(conflict)][0];
@@ -323,17 +359,19 @@ export class State {
 		}
 	}
 
-	getGoto(term: Term) {
+	getGoto(term: Term): Shift | undefined {
 		return this.goto.find((a) => a.term == term);
 	}
 
-	hasSet(set: readonly Pos[]) {
+	hasSet(set: readonly Pos[]): boolean {
 		return eqSet(this.set, set);
 	}
 
 	_actionsByTerm: null | { [id: number]: (Shift | Reduce)[] } = null;
 
-	actionsByTerm() {
+	actionsByTerm(): {
+		[id: number]: (Shift | Reduce)[];
+	} {
 		let result = this._actionsByTerm;
 		if (!result) {
 			this._actionsByTerm = result = Object.create(null) as { [id: number]: (Shift | Reduce)[] };
@@ -343,7 +381,7 @@ export class State {
 		return result;
 	}
 
-	finish() {
+	finish(): void {
 		if (this.actions.length) {
 			let first = this.actions[0];
 			if (first instanceof Reduce) {
@@ -356,7 +394,7 @@ export class State {
 		this.goto.sort((a, b) => a.cmp(b));
 	}
 
-	eq(other: State) {
+	eq(other: State): boolean {
 		let dThis = this.defaultReduce,
 			dOther = other.defaultReduce;
 		if (dThis || dOther) return dThis && dOther ? dThis.sameReduce(dOther) : false;
@@ -443,7 +481,9 @@ function addTo<T>(value: T, array: T[]) {
 	if (!array.includes(value)) array.push(value);
 }
 
-export function computeFirstSets(terms: TermSet) {
+export function computeFirstSets(terms: TermSet): {
+	[term: string]: (Term | null)[];
+} {
 	let table: { [term: string]: (Term | null)[] } = Object.create(null);
 	for (let t of terms.terms) if (!t.terminal) table[t.name] = [];
 	for (;;) {
@@ -474,17 +514,23 @@ export function computeFirstSets(terms: TermSet) {
 }
 
 class Core {
-	constructor(
-		readonly set: readonly Pos[],
-		readonly state: State,
-	) {}
+	readonly set: readonly Pos[];
+	readonly state: State;
+
+	constructor(set: readonly Pos[], state: State) {
+		this.set = set;
+		this.state = state;
+	}
 }
 
 class Conflict {
-	constructor(
-		readonly error: string,
-		readonly rules: readonly Term[],
-	) {}
+	readonly error: string;
+	readonly rules: readonly Term[];
+
+	constructor(error: string, rules: readonly Term[]) {
+		this.error = error;
+		this.rules = rules;
+	}
 }
 
 function findConflictOrigin(a: Pos, b: Pos) {
@@ -559,7 +605,7 @@ export function buildFullAutomaton(
 	terms: TermSet,
 	startTerms: Term[],
 	first: { [name: string]: (Term | null)[] },
-) {
+): State[] {
 	let states: State[] = [],
 		statesBySetHash: { [hash: number]: State[] } = {};
 	let cores: { [hash: number]: Core[] } = {};
@@ -744,10 +790,10 @@ function mergeStates(states: readonly State[], mapping: readonly number[]) {
 
 class Group {
 	members: number[];
-	constructor(
-		readonly origin: number,
-		member: number,
-	) {
+	readonly origin: number;
+
+	constructor(origin: number, member: number) {
+		this.origin = origin;
 		this.members = [member];
 	}
 }
@@ -869,6 +915,6 @@ function mergeIdentical(states: readonly State[]): readonly State[] {
 
 const none: readonly any[] = [];
 
-export function finishAutomaton(full: readonly State[]) {
+export function finishAutomaton(full: readonly State[]): readonly State[] {
 	return mergeIdentical(collapseAutomaton(full));
 }

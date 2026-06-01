@@ -6,10 +6,13 @@ export const DefaultBufferLength = 1024;
 let nextPropID = 0;
 
 export class Range {
-	constructor(
-		readonly from: number,
-		readonly to: number,
-	) {}
+	readonly from: number;
+	readonly to: number;
+
+	constructor(from: number, to: number) {
+		this.from = from;
+		this.to = to;
+	}
 }
 
 /// Each [node type](#common.NodeType) or [individual tree](#common.Tree)
@@ -82,17 +85,23 @@ export class NodeProp<T> {
 	/// delimiters, this holds an array of node names (written as a
 	/// space-separated string when declaring this prop in a grammar)
 	/// for the node types of closing delimiters that match it.
-	static closedBy = new NodeProp<readonly string[]>({ deserialize: (str) => str.split(" ") });
+	static closedBy: NodeProp<readonly string[]> = new NodeProp<readonly string[]>({
+		deserialize: (str) => str.split(" "),
+	});
 
 	/// The inverse of [`closedBy`](#common.NodeProp^closedBy). This is
 	/// attached to closing delimiters, holding an array of node names
 	/// of types of matching opening delimiters.
-	static openedBy = new NodeProp<readonly string[]>({ deserialize: (str) => str.split(" ") });
+	static openedBy: NodeProp<readonly string[]> = new NodeProp<readonly string[]>({
+		deserialize: (str) => str.split(" "),
+	});
 
 	/// Used to assign node types to groups (for example, all node
 	/// types that represent an expression could be tagged with an
 	/// `"Expression"` group).
-	static group = new NodeProp<readonly string[]>({ deserialize: (str) => str.split(" ") });
+	static group: NodeProp<readonly string[]> = new NodeProp<readonly string[]>({
+		deserialize: (str) => str.split(" "),
+	});
 
 	/// Attached to nodes to indicate these should be
 	/// [displayed](https://codemirror.net/docs/ref/#language.syntaxTree)
@@ -103,7 +112,7 @@ export class NodeProp<T> {
 	/// nodes that appear _inside_ arbitrary text, like HTML tags. When
 	/// not given a value, in a grammar declaration, defaults to
 	/// `"auto"`.
-	static isolate = new NodeProp<"rtl" | "ltr" | "auto">({
+	static isolate: NodeProp<"rtl" | "ltr" | "auto"> = new NodeProp<"rtl" | "ltr" | "auto">({
 		deserialize: (value) => {
 			if (value && value != "rtl" && value != "ltr" && value != "auto")
 				throw new RangeError("Invalid value for isolate: " + value);
@@ -114,27 +123,32 @@ export class NodeProp<T> {
 	/// The hash of the [context](#lr.ContextTracker.constructor)
 	/// that the node was parsed in, if any. Used to limit reuse of
 	/// contextual nodes.
-	static contextHash = new NodeProp<number>({ perNode: true });
+	static contextHash: NodeProp<number> = new NodeProp<number>({ perNode: true });
 
 	/// The distance beyond the end of the node that the tokenizer
 	/// looked ahead for any of the tokens inside the node. (The LR
 	/// parser only stores this when it is larger than 25, for
 	/// efficiency reasons.)
-	static lookAhead = new NodeProp<number>({ perNode: true });
+	static lookAhead: NodeProp<number> = new NodeProp<number>({ perNode: true });
 
 	/// This per-node prop is used to replace a given node, or part of a
 	/// node, with another tree. This is useful to include trees from
 	/// different languages in mixed-language parsers.
-	static mounted = new NodeProp<MountedTree>({ perNode: true });
+	static mounted: NodeProp<MountedTree> = new NodeProp<MountedTree>({ perNode: true });
 }
 
 /// A mounted tree, which can be [stored](#common.NodeProp^mounted) on
 /// a tree node to indicate that parts of its content are
 /// represented by another tree.
 export class MountedTree {
+	readonly tree: Tree;
+	readonly overlay: readonly { from: number; to: number }[] | null;
+	readonly parser: Parser;
+	readonly bracketed: boolean;
+
 	constructor(
 		/// The inner tree.
-		readonly tree: Tree,
+		tree: Tree,
 		/// If this is null, this tree replaces the entire node (it will
 		/// be included in the regular iteration instead of its host
 		/// node). If not, only the given ranges are considered to be
@@ -142,14 +156,19 @@ export class MountedTree {
 		/// a way that isn't strictly hierarchical. Such mounted trees are
 		/// only entered by [`resolveInner`](#common.Tree.resolveInner)
 		/// and [`enter`](#common.SyntaxNode.enter).
-		readonly overlay: readonly { from: number; to: number }[] | null,
+		overlay: readonly { from: number; to: number }[] | null,
 		/// The parser used to create this subtree.
-		readonly parser: Parser,
+		parser: Parser,
 		/// [Indicates](#common.IterMode.EnterBracketed) that the nested
 		/// content is delineated with some kind
 		/// of bracket token.
-		readonly bracketed = false,
-	) {}
+		bracketed = false,
+	) {
+		this.tree = tree;
+		this.overlay = overlay;
+		this.parser = parser;
+		this.bracketed = bracketed;
+	}
 
 	/// @internal
 	static get(tree: Tree | null): MountedTree | null {
@@ -163,32 +182,38 @@ export class MountedTree {
 export type NodePropSource = (type: NodeType) => null | [NodeProp<any>, any];
 
 // Note: this is duplicated in lr/src/constants.ts
-const enum NodeFlag {
-	Top = 1,
-	Skipped = 2,
-	Error = 4,
-	Anonymous = 8,
-}
+const NodeFlag = { Top: 1, Skipped: 2, Error: 4, Anonymous: 8 } as const;
+type NodeFlag = (typeof NodeFlag)[keyof typeof NodeFlag];
 
 const noProps: { [propID: number]: any } = Object.create(null);
 
 /// Each node in a syntax tree has a node type associated with it.
 export class NodeType {
 	/// @internal
+	readonly name: string;
+	readonly props: { readonly [prop: number]: any };
+	readonly id: number;
+	readonly flags: number;
+
 	constructor(
 		/// The name of the node type. Not necessarily unique, but if the
 		/// grammar was written properly, different node types with the
 		/// same name within a node set should play the same semantic
 		/// role.
-		readonly name: string,
+		name: string,
 		/// @internal
-		readonly props: { readonly [prop: number]: any },
+		props: { readonly [prop: number]: any },
 		/// The id of this node in its set. Corresponds to the term ids
 		/// used in the parser.
-		readonly id: number,
+		id: number,
 		/// @internal
-		readonly flags: number = 0,
-	) {}
+		flags: number = 0,
+	) {
+		this.name = name;
+		this.props = props;
+		this.id = id;
+		this.flags = flags;
+	}
 
 	/// Define a node type.
 	static define(spec: {
@@ -210,7 +235,7 @@ export class NodeType {
 		/// Whether this node is a [skipped](#common.NodeType.isSkipped)
 		/// node.
 		skipped?: boolean;
-	}) {
+	}): NodeType {
 		let props = spec.props && spec.props.length ? Object.create(null) : noProps;
 		let flags =
 			(spec.top ? NodeFlag.Top : 0) |
@@ -236,29 +261,29 @@ export class NodeType {
 	}
 
 	/// True when this is the top node of a grammar.
-	get isTop() {
+	get isTop(): boolean {
 		return (this.flags & NodeFlag.Top) > 0;
 	}
 
 	/// True when this node is produced by a skip rule.
-	get isSkipped() {
+	get isSkipped(): boolean {
 		return (this.flags & NodeFlag.Skipped) > 0;
 	}
 
 	/// Indicates whether this is an error node.
-	get isError() {
+	get isError(): boolean {
 		return (this.flags & NodeFlag.Error) > 0;
 	}
 
 	/// When true, this node type doesn't correspond to a user-declared
 	/// named node, for example because it is used to cache repetition.
-	get isAnonymous() {
+	get isAnonymous(): boolean {
 		return (this.flags & NodeFlag.Anonymous) > 0;
 	}
 
 	/// Returns true when this node's name or one of its
 	/// [groups](#common.NodeProp^group) matches the given string.
-	is(name: string | number) {
+	is(name: string | number): boolean {
 		if (typeof name == "string") {
 			if (this.name == name) return true;
 			let group = this.prop(NodeProp.group);
@@ -298,10 +323,10 @@ export class NodeType {
 export class NodeSet {
 	/// Create a set with the given types. The `id` property of each
 	/// type should correspond to its position within the array.
-	constructor(
-		/// The node types in this set, by id.
-		readonly types: readonly NodeType[],
-	) {
+	readonly types: readonly NodeType[];
+
+	constructor(types: readonly NodeType[]) {
+		this.types = types;
 		for (let i = 0; i < types.length; i++)
 			if (types[i].id != i)
 				throw new RangeError(
@@ -337,30 +362,31 @@ const CachedNode = new WeakMap<Tree, SyntaxNode>(),
 
 /// Options that control iteration. Can be combined with the `|`
 /// operator to enable multiple ones.
-export enum IterMode {
+export const IterMode = {
 	/// When enabled, iteration will only visit [`Tree`](#common.Tree)
 	/// objects, not nodes packed into
 	/// [`TreeBuffer`](#common.TreeBuffer)s.
-	ExcludeBuffers = 1,
+	ExcludeBuffers: 1,
 	/// Enable this to make iteration include anonymous nodes (such as
 	/// the nodes that wrap repeated grammar constructs into a balanced
 	/// tree).
-	IncludeAnonymous = 2,
+	IncludeAnonymous: 2,
 	/// By default, regular [mounted](#common.NodeProp^mounted) nodes
 	/// replace their base node in iteration. Enable this to ignore them
 	/// instead.
-	IgnoreMounts = 4,
+	IgnoreMounts: 4,
 	/// This option only applies in
 	/// [`enter`](#common.SyntaxNode.enter)-style methods. It tells the
 	/// library to not enter mounted overlays if one covers the given
 	/// position.
-	IgnoreOverlays = 8,
+	IgnoreOverlays: 8,
 	/// When set, positions on the boundary of a mounted overlay tree
 	/// that has its [`bracketed`](#common.NestedParse.bracketed) flag
 	/// set will enter that tree regardless of side. Only supported in
 	/// [`enter`](#common.SyntaxNode.enter), not in cursors.
-	EnterBracketed = 16,
-}
+	EnterBracketed: 16,
+} as const;
+export type IterMode = (typeof IterMode)[keyof typeof IterMode];
 
 /// A piece of syntax tree. There are two ways to approach these
 /// trees: the way they are actually stored in memory, and the
@@ -381,19 +407,28 @@ export class Tree {
 	props: null | { [id: number]: any } = null;
 
 	/// Construct a new tree. See also [`Tree.build`](#common.Tree^build).
+	readonly type: NodeType;
+	readonly children: readonly (Tree | TreeBuffer)[];
+	readonly positions: readonly number[];
+	readonly length: number;
+
 	constructor(
 		/// The type of the top node.
-		readonly type: NodeType,
+		type: NodeType,
 		/// This node's child nodes.
-		readonly children: readonly (Tree | TreeBuffer)[],
+		children: readonly (Tree | TreeBuffer)[],
 		/// The positions (offsets relative to the start of this tree) of
 		/// the children.
-		readonly positions: readonly number[],
+		positions: readonly number[],
 		/// The total length of this tree
-		readonly length: number,
+		length: number,
 		/// Per-node [node props](#common.NodeProp) to associate with this node.
 		props?: readonly [NodeProp<any> | number, any][],
 	) {
+		this.type = type;
+		this.children = children;
+		this.positions = positions;
+		this.length = length;
 		if (props && props.length) {
 			this.props = Object.create(null);
 			for (let [prop, value] of props)
@@ -421,19 +456,19 @@ export class Tree {
 	}
 
 	/// The empty tree
-	static empty = new Tree(NodeType.none, [], [], 0);
+	static empty: Tree = new Tree(NodeType.none, [], [], 0);
 
 	/// Get a [tree cursor](#common.TreeCursor) positioned at the top of
 	/// the tree. Mode can be used to [control](#common.IterMode) which
 	/// nodes the cursor visits.
-	cursor(mode: IterMode = 0 as IterMode) {
+	cursor(mode: IterMode = 0 as IterMode): TreeCursor {
 		return new TreeCursor(this.topNode as TreeNode, mode);
 	}
 
 	/// Get a [tree cursor](#common.TreeCursor) pointing into this tree
 	/// at the given position and side (see
 	/// [`moveTo`](#common.TreeCursor.moveTo).
-	cursorAt(pos: number, side: -1 | 0 | 1 = 0, mode: IterMode = 0 as IterMode): TreeCursor {
+	cursorAt(pos: number, side: -1 | 0 | 1 = 0, _mode: IterMode = 0 as IterMode): TreeCursor {
 		let scope = CachedNode.get(this) || this.topNode;
 		let cursor = new TreeCursor(scope as TreeNode | BufferNode);
 		cursor.moveTo(pos, side);
@@ -456,7 +491,7 @@ export class Tree {
 	/// Note that this will not enter
 	/// [overlays](#common.MountedTree.overlay), and you often want
 	/// [`resolveInner`](#common.Tree.resolveInner) instead.
-	resolve(pos: number, side: -1 | 0 | 1 = 0) {
+	resolve(pos: number, side: -1 | 0 | 1 = 0): SyntaxNode {
 		let node = resolveNode(CachedNode.get(this) || this.topNode, pos, side, false);
 		CachedNode.set(this, node);
 		return node;
@@ -467,7 +502,7 @@ export class Tree {
 	/// pointing into the innermost overlaid tree at the given position
 	/// (with parent links going through all parent structure, including
 	/// the host trees).
-	resolveInner(pos: number, side: -1 | 0 | 1 = 0) {
+	resolveInner(pos: number, side: -1 | 0 | 1 = 0): SyntaxNode {
 		let node = resolveNode(CachedInnerNode.get(this) || this.topNode, pos, side, true);
 		CachedInnerNode.set(this, node);
 		return node;
@@ -493,11 +528,11 @@ export class Tree {
 		from?: number;
 		to?: number;
 		mode?: IterMode;
-	}) {
+	}): void {
 		let { enter, leave, from = 0, to = this.length } = spec;
-		let mode = spec.mode || 0,
+		let mode = (spec.mode || 0) as IterMode,
 			anon = (mode & IterMode.IncludeAnonymous) > 0;
-		for (let c = this.cursor(mode | IterMode.IncludeAnonymous); ; ) {
+		for (let c = this.cursor((mode | IterMode.IncludeAnonymous) as IterMode); ; ) {
 			let entered = false;
 			if (c.from <= to && c.to >= from && ((!anon && c.type.isAnonymous) || enter(c) !== false)) {
 				if (c.firstChild()) continue;
@@ -539,7 +574,7 @@ export class Tree {
 				length: number,
 			) => Tree;
 		} = {},
-	) {
+	): Tree {
 		return this.children.length <= Balance.BranchFactor
 			? this
 			: balanceRange(
@@ -559,7 +594,7 @@ export class Tree {
 
 	/// Build a tree from a postfix-ordered buffer of node information,
 	/// or a cursor over such a buffer.
-	static build(data: BuildData) {
+	static build(data: BuildData): Tree {
 		return buildTree(data);
 	}
 }
@@ -636,10 +671,13 @@ export interface BufferCursor {
 }
 
 class FlatBufferCursor implements BufferCursor {
-	constructor(
-		readonly buffer: readonly number[],
-		public index: number,
-	) {}
+	readonly buffer: readonly number[];
+	public index: number;
+
+	constructor(buffer: readonly number[], index: number) {
+		this.buffer = buffer;
+		this.index = index;
+	}
 
 	get id() {
 		return this.buffer[this.index - 4];
@@ -673,22 +711,30 @@ class FlatBufferCursor implements BufferCursor {
 /// children belong to it).
 export class TreeBuffer {
 	/// Create a tree buffer.
+	readonly buffer: Uint16Array;
+	readonly length: number;
+	readonly set: NodeSet;
+
 	constructor(
 		/// The buffer's content.
-		readonly buffer: Uint16Array,
+		buffer: Uint16Array,
 		/// The total length of the group of nodes in the buffer.
-		readonly length: number,
+		length: number,
 		/// The node set used in this buffer.
-		readonly set: NodeSet,
-	) {}
+		set: NodeSet,
+	) {
+		this.buffer = buffer;
+		this.length = length;
+		this.set = set;
+	}
 
 	/// @internal
-	get type() {
+	get type(): NodeType {
 		return NodeType.none;
 	}
 
 	/// @internal
-	toString() {
+	toString(): string {
 		let result: string[] = [];
 		for (let index = 0; index < this.buffer.length; ) {
 			result.push(this.childString(index));
@@ -715,7 +761,7 @@ export class TreeBuffer {
 	}
 
 	/// @internal
-	findChild(startIndex: number, endIndex: number, dir: 1 | -1, pos: number, side: Side) {
+	findChild(startIndex: number, endIndex: number, dir: 1 | -1, pos: number, side: Side): number {
 		let { buffer } = this,
 			pick = -1;
 		for (let i = startIndex; i != endIndex; i = buffer[i + 3]) {
@@ -728,7 +774,7 @@ export class TreeBuffer {
 	}
 
 	/// @internal
-	slice(startI: number, endI: number, from: number) {
+	slice(startI: number, endI: number, from: number): TreeBuffer {
 		let b = this.buffer;
 		let copy = new Uint16Array(endI - startI),
 			len = 0;
@@ -841,14 +887,15 @@ export interface SyntaxNode extends SyntaxNodeRef {
 	): SyntaxNode[];
 }
 
-const enum Side {
-	Before = -2,
-	AtOrBefore = -1,
-	Around = 0,
-	AtOrAfter = 1,
-	After = 2,
-	DontCare = 4,
-}
+const Side = {
+	Before: -2,
+	AtOrBefore: -1,
+	Around: 0,
+	AtOrAfter: 1,
+	After: 2,
+	DontCare: 4,
+} as const;
+type Side = (typeof Side)[keyof typeof Side];
 
 function checkSide(side: Side, pos: number, from: number, to: number) {
 	switch (side) {
@@ -883,7 +930,7 @@ function resolveNode(
 		if (!parent) return node;
 		node = parent;
 	}
-	let mode = overlays ? 0 : IterMode.IgnoreOverlays;
+	let mode = (overlays ? 0 : IterMode.IgnoreOverlays) as IterMode;
 	// Must go up out of overlays when those do not overlap with pos
 	if (overlays)
 		for (
@@ -922,7 +969,7 @@ abstract class BaseNode implements SyntaxNode {
 	abstract toTree(): Tree;
 	abstract prop<T>(prop: NodeProp<T>): T | undefined;
 
-	cursor(mode: IterMode = 0 as IterMode) {
+	cursor(mode: IterMode = 0 as IterMode): TreeCursor {
 		return new TreeCursor(this as any, mode);
 	}
 
@@ -930,7 +977,7 @@ abstract class BaseNode implements SyntaxNode {
 		type: string | number,
 		before: string | number | null = null,
 		after: string | number | null = null,
-	) {
+	): SyntaxNode | null {
 		let r = getChildren(this, type, before, after);
 		return r.length ? r[0] : null;
 	}
@@ -955,7 +1002,7 @@ abstract class BaseNode implements SyntaxNode {
 		return matchNodeContext(this.parent, context);
 	}
 
-	enterUnfinishedNodesBefore(pos: number) {
+	enterUnfinishedNodesBefore(pos: number): SyntaxNode {
 		let scan = this.childBefore(pos),
 			node: SyntaxNode = this;
 		while (scan) {
@@ -971,35 +1018,44 @@ abstract class BaseNode implements SyntaxNode {
 		return node;
 	}
 
-	get node() {
+	get node(): this {
 		return this;
 	}
 
-	get next() {
+	get next(): SyntaxNode | null {
 		return this.parent;
 	}
 }
 
 export class TreeNode extends BaseNode implements SyntaxNode {
+	readonly _tree: Tree;
+	readonly from: number;
+	readonly index: number;
+	readonly _parent: TreeNode | null;
+
 	constructor(
-		readonly _tree: Tree,
-		readonly from: number,
+		_tree: Tree,
+		from: number,
 		// Index in parent node, set to -1 if the node is not a direct child of _parent.node (overlay)
-		readonly index: number,
-		readonly _parent: TreeNode | null,
+		index: number,
+		_parent: TreeNode | null,
 	) {
 		super();
+		this._tree = _tree;
+		this.from = from;
+		this.index = index;
+		this._parent = _parent;
 	}
 
-	get type() {
+	get type(): NodeType {
 		return this._tree.type;
 	}
 
-	get name() {
+	get name(): string {
 		return this._tree.type.name;
 	}
 
-	get to() {
+	get to(): number {
 		return this.from + this._tree.length;
 	}
 
@@ -1059,17 +1115,17 @@ export class TreeNode extends BaseNode implements SyntaxNode {
 		}
 	}
 
-	get firstChild() {
+	get firstChild(): TreeNode | BufferNode | null {
 		return this.nextChild(0, 1, 0, Side.DontCare);
 	}
-	get lastChild() {
+	get lastChild(): TreeNode | BufferNode | null {
 		return this.nextChild(this._tree.children.length - 1, -1, 0, Side.DontCare);
 	}
 
-	childAfter(pos: number) {
+	childAfter(pos: number): TreeNode | BufferNode | null {
 		return this.nextChild(0, 1, pos, Side.After);
 	}
-	childBefore(pos: number) {
+	childBefore(pos: number): TreeNode | BufferNode | null {
 		return this.nextChild(this._tree.children.length - 1, -1, pos, Side.Before);
 	}
 
@@ -1077,7 +1133,11 @@ export class TreeNode extends BaseNode implements SyntaxNode {
 		return this._tree.prop(prop);
 	}
 
-	enter(pos: number, side: -1 | 0 | 1, mode = 0) {
+	enter(
+		pos: number,
+		side: -1 | 0 | 1,
+		mode: IterMode = 0 as IterMode,
+	): TreeNode | BufferNode | null {
 		let mounted;
 		if (
 			!(mode & IterMode.IgnoreOverlays) &&
@@ -1097,7 +1157,7 @@ export class TreeNode extends BaseNode implements SyntaxNode {
 		return this.nextChild(0, 1, pos, side, mode);
 	}
 
-	nextSignificantParent() {
+	nextSignificantParent(): TreeNode {
 		let val: TreeNode = this;
 		while (val.type.isAnonymous && val._parent) val = val._parent;
 		return val;
@@ -1118,16 +1178,16 @@ export class TreeNode extends BaseNode implements SyntaxNode {
 			: null;
 	}
 
-	get tree() {
+	get tree(): Tree {
 		return this._tree;
 	}
 
-	toTree() {
+	toTree(): Tree {
 		return this._tree;
 	}
 
 	/// @internal
-	toString() {
+	toString(): string {
 		return this._tree.toString();
 	}
 }
@@ -1169,35 +1229,43 @@ function matchNodeContext(
 }
 
 class BufferContext {
-	constructor(
-		readonly parent: TreeNode,
-		readonly buffer: TreeBuffer,
-		readonly index: number,
-		readonly start: number,
-	) {}
+	readonly parent: TreeNode;
+	readonly buffer: TreeBuffer;
+	readonly index: number;
+	readonly start: number;
+
+	constructor(parent: TreeNode, buffer: TreeBuffer, index: number, start: number) {
+		this.parent = parent;
+		this.buffer = buffer;
+		this.index = index;
+		this.start = start;
+	}
 }
 
 export class BufferNode extends BaseNode {
 	type: NodeType;
 
-	get name() {
+	get name(): string {
 		return this.type.name;
 	}
 
-	get from() {
+	get from(): number {
 		return this.context.start + this.context.buffer.buffer[this.index + 1];
 	}
 
-	get to() {
+	get to(): number {
 		return this.context.start + this.context.buffer.buffer[this.index + 2];
 	}
 
-	constructor(
-		readonly context: BufferContext,
-		readonly _parent: BufferNode | null,
-		readonly index: number,
-	) {
+	readonly context: BufferContext;
+	readonly _parent: BufferNode | null;
+	readonly index: number;
+
+	constructor(context: BufferContext, _parent: BufferNode | null, index: number) {
 		super();
+		this.context = context;
+		this._parent = _parent;
+		this.index = index;
 		this.type = context.buffer.set.types[context.buffer.buffer[index]];
 	}
 
@@ -1213,17 +1281,17 @@ export class BufferNode extends BaseNode {
 		return index < 0 ? null : new BufferNode(this.context, this, index);
 	}
 
-	get firstChild() {
+	get firstChild(): BufferNode | null {
 		return this.child(1, 0, Side.DontCare);
 	}
-	get lastChild() {
+	get lastChild(): BufferNode | null {
 		return this.child(-1, 0, Side.DontCare);
 	}
 
-	childAfter(pos: number) {
+	childAfter(pos: number): BufferNode | null {
 		return this.child(1, pos, Side.After);
 	}
-	childBefore(pos: number) {
+	childBefore(pos: number): BufferNode | null {
 		return this.child(-1, pos, Side.Before);
 	}
 
@@ -1231,7 +1299,7 @@ export class BufferNode extends BaseNode {
 		return this.type.prop(prop);
 	}
 
-	enter(pos: number, side: -1 | 0 | 1, mode: IterMode = 0 as IterMode) {
+	enter(pos: number, side: -1 | 0 | 1, mode: IterMode = 0 as IterMode): BufferNode | null {
 		if (mode & IterMode.ExcludeBuffers) return null;
 		let { buffer } = this.context;
 		let index = buffer.findChild(
@@ -1248,7 +1316,7 @@ export class BufferNode extends BaseNode {
 		return this._parent || this.context.parent.nextSignificantParent();
 	}
 
-	externalSibling(dir: 1 | -1) {
+	externalSibling(dir: 1 | -1): TreeNode | BufferNode | null {
 		return this._parent
 			? null
 			: this.context.parent.nextChild(this.context.index + dir, dir, 0, Side.DontCare);
@@ -1277,7 +1345,7 @@ export class BufferNode extends BaseNode {
 		return null;
 	}
 
-	toTree() {
+	toTree(): Tree {
 		let children = [],
 			positions = [];
 		let { buffer } = this.context;
@@ -1292,7 +1360,7 @@ export class BufferNode extends BaseNode {
 	}
 
 	/// @internal
-	toString() {
+	toString(): string {
 		return this.context.buffer.childString(this.index);
 	}
 }
@@ -1316,10 +1384,13 @@ function iterStack(heads: readonly SyntaxNode[]): NodeIterator | null {
 }
 
 class StackIterator implements NodeIterator {
-	constructor(
-		readonly heads: readonly SyntaxNode[],
-		readonly node: SyntaxNode,
-	) {}
+	readonly heads: readonly SyntaxNode[];
+	readonly node: SyntaxNode;
+
+	constructor(heads: readonly SyntaxNode[], node: SyntaxNode) {
+		this.heads = heads;
+		this.node = node;
+	}
 	get next() {
 		return iterStack(this.heads);
 	}
@@ -1363,7 +1434,7 @@ export class TreeCursor implements SyntaxNodeRef {
 	type!: NodeType;
 
 	/// Shorthand for `.type.name`.
-	get name() {
+	get name(): string {
 		return this.type.name;
 	}
 
@@ -1386,7 +1457,7 @@ export class TreeCursor implements SyntaxNodeRef {
 
 	/// @internal
 	constructor(node: TreeNode | BufferNode, mode = 0) {
-		this.mode = mode & ~IterMode.EnterBracketed;
+		this.mode = (mode & ~IterMode.EnterBracketed) as IterMode;
 		if (node instanceof TreeNode) {
 			this.yieldNode(node);
 		} else {
@@ -1417,7 +1488,7 @@ export class TreeCursor implements SyntaxNodeRef {
 	}
 
 	/// @internal
-	yield(node: TreeNode | BufferNode | null) {
+	yield(node: TreeNode | BufferNode | null): boolean {
 		if (!node) return false;
 		if (node instanceof TreeNode) {
 			this.buffer = null;
@@ -1428,12 +1499,12 @@ export class TreeCursor implements SyntaxNodeRef {
 	}
 
 	/// @internal
-	toString() {
+	toString(): string {
 		return this.buffer ? this.buffer.buffer.childString(this.index) : this._tree.toString();
 	}
 
 	/// @internal
-	enterChild(dir: 1 | -1, pos: number, side: Side) {
+	enterChild(dir: 1 | -1, pos: number, side: Side): boolean {
 		if (!this.buffer)
 			return this.yield(
 				this._tree.nextChild(
@@ -1460,22 +1531,22 @@ export class TreeCursor implements SyntaxNodeRef {
 
 	/// Move the cursor to this node's first child. When this returns
 	/// false, the node has no child, and the cursor has not been moved.
-	firstChild() {
+	firstChild(): boolean {
 		return this.enterChild(1, 0, Side.DontCare);
 	}
 
 	/// Move the cursor to this node's last child.
-	lastChild() {
+	lastChild(): boolean {
 		return this.enterChild(-1, 0, Side.DontCare);
 	}
 
 	/// Move the cursor to the first child that ends after `pos`.
-	childAfter(pos: number) {
+	childAfter(pos: number): boolean {
 		return this.enterChild(1, pos, Side.After);
 	}
 
 	/// Move to the last child that starts before `pos`.
-	childBefore(pos: number) {
+	childBefore(pos: number): boolean {
 		return this.enterChild(-1, pos, Side.Before);
 	}
 
@@ -1484,13 +1555,13 @@ export class TreeCursor implements SyntaxNodeRef {
 	/// will also enter [overlaid](#common.MountedTree.overlay)
 	/// [mounted](#common.NodeProp^mounted) trees unless `overlays` is
 	/// set to false.
-	enter(pos: number, side: -1 | 0 | 1, mode: IterMode = this.mode) {
+	enter(pos: number, side: -1 | 0 | 1, mode: IterMode = this.mode): boolean {
 		if (!this.buffer) return this.yield(this._tree.enter(pos, side, mode));
 		return mode & IterMode.ExcludeBuffers ? false : this.enterChild(1, pos, side);
 	}
 
 	/// Move to the node's parent node, if this isn't the top node.
-	parent() {
+	parent(): boolean {
 		if (!this.buffer)
 			return this.yieldNode(
 				this.mode & IterMode.IncludeAnonymous ? this._tree._parent : this._tree.parent,
@@ -1505,7 +1576,7 @@ export class TreeCursor implements SyntaxNodeRef {
 	}
 
 	/// @internal
-	sibling(dir: 1 | -1) {
+	sibling(dir: 1 | -1): boolean {
 		if (!this.buffer)
 			return !this._tree._parent
 				? false
@@ -1540,12 +1611,12 @@ export class TreeCursor implements SyntaxNodeRef {
 	}
 
 	/// Move to this node's next sibling, if any.
-	nextSibling() {
+	nextSibling(): boolean {
 		return this.sibling(1);
 	}
 
 	/// Move to this node's previous sibling, if any.
-	prevSibling() {
+	prevSibling(): boolean {
 		return this.sibling(-1);
 	}
 
@@ -1597,7 +1668,7 @@ export class TreeCursor implements SyntaxNodeRef {
 	/// traversal, going from a node to its first child or, if the
 	/// current node is empty or `enter` is false, its next sibling or
 	/// the next sibling of the first parent node that has one.
-	next(enter = true) {
+	next(enter = true): boolean {
 		return this.move(1, enter);
 	}
 
@@ -1605,14 +1676,14 @@ export class TreeCursor implements SyntaxNodeRef {
 	/// node is followed by its last child or, if it has none, its
 	/// previous sibling or the previous sibling of the first parent
 	/// node that has one.
-	prev(enter = true) {
+	prev(enter = true): boolean {
 		return this.move(-1, enter);
 	}
 
 	/// Move the cursor to the innermost node that covers `pos`. If
 	/// `side` is -1, it will enter nodes that end at `pos`. If it is 1,
 	/// it will enter nodes that start at `pos`.
-	moveTo(pos: number, side: -1 | 0 | 1 = 0) {
+	moveTo(pos: number, side: -1 | 0 | 1 = 0): this {
 		// Move up to a node that actually holds the position, if possible
 		while (
 			this.from == this.to ||
@@ -1662,7 +1733,10 @@ export class TreeCursor implements SyntaxNodeRef {
 	/// `enter` when entering a node and `leave`, if given, when leaving
 	/// one. When `enter` returns `false`, any children of that node are
 	/// skipped, and `leave` isn't called for it.
-	iterate(enter: (node: SyntaxNodeRef) => boolean | void, leave?: (node: SyntaxNodeRef) => void) {
+	iterate(
+		enter: (node: SyntaxNodeRef) => boolean | void,
+		leave?: (node: SyntaxNodeRef) => void,
+	): void {
 		for (let depth = 0; ; ) {
 			let mustLeave = false;
 			if (this.type.isAnonymous || enter(this) !== false) {
@@ -1709,18 +1783,9 @@ function hasChild(tree: Tree): boolean {
 	);
 }
 
-const enum Balance {
-	BranchFactor = 8,
-}
-const enum CutOff {
-	Depth = 2500,
-}
-
-const enum SpecialRecord {
-	Reuse = -1,
-	ContextChange = -3,
-	LookAhead = -4,
-}
+const Balance = { BranchFactor: 8 } as const;
+const CutOff = { Depth: 2500 } as const;
+const SpecialRecord = { Reuse: -1, ContextChange: -3, LookAhead: -4 } as const;
 
 function buildTree(data: BuildData) {
 	let {
@@ -2172,7 +2237,7 @@ export class NodeWeakMap<T> {
 	}
 
 	/// Set the value for this syntax node.
-	set(node: SyntaxNode, value: T) {
+	set(node: SyntaxNode, value: T): void {
 		if (node instanceof BufferNode) this.setBuffer(node.context.buffer, node.index, value);
 		else if (node instanceof TreeNode) this.map.set(node.tree, value);
 	}
@@ -2187,7 +2252,7 @@ export class NodeWeakMap<T> {
 	}
 
 	/// Set the value for the node that a cursor currently points to.
-	cursorSet(cursor: TreeCursor, value: T) {
+	cursorSet(cursor: TreeCursor, value: T): void {
 		if (cursor.buffer) this.setBuffer(cursor.buffer.buffer, cursor.index, value);
 		else this.map.set(cursor.tree!, value);
 	}

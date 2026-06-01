@@ -46,15 +46,19 @@ export class Input {
 	value: any = null;
 	start = 0;
 	end = 0;
+	readonly string: string;
+	readonly fileName: string | null;
 
-	constructor(
-		readonly string: string,
-		readonly fileName: string | null = null,
-	) {
+	constructor(string: string, fileName: string | null = null) {
+		this.string = string;
+		this.fileName = fileName;
 		this.next();
 	}
 
-	lineInfo(pos: number) {
+	lineInfo(pos: number): {
+		line: number;
+		ch: number;
+	} {
 		for (let line = 1, cur = 0; ; ) {
 			let next = this.string.indexOf("\n", cur);
 			if (next > -1 && next < pos) {
@@ -79,12 +83,12 @@ export class Input {
 		throw new GenError(this.message(msg, pos));
 	}
 
-	match(pos: number, re: RegExp) {
+	match(pos: number, re: RegExp): number {
 		let match = re.exec(this.string.slice(pos));
 		return match ? pos + match[0].length : -1;
 	}
 
-	next() {
+	next(): void {
 		let start = this.match(this.end, /^(\s|\/\/.*|\/\*[^]*?\*\/)*/);
 		if (start == this.string.length) return this.set("eof", null, start, start);
 
@@ -116,14 +120,14 @@ export class Input {
 		}
 	}
 
-	set(type: string, value: any, start: number, end: number) {
+	set(type: string, value: any, start: number, end: number): void {
 		this.type = type;
 		this.value = value;
 		this.start = start;
 		this.end = end;
 	}
 
-	eat(type: string, value: any = null) {
+	eat(type: string, value: any = null): boolean {
 		if (this.type == type && (value == null || this.value === value)) {
 			this.next();
 			return true;
@@ -136,14 +140,14 @@ export class Input {
 		return this.raise(`Unexpected token '${this.string.slice(this.start, this.end)}'`, this.start);
 	}
 
-	expect(type: string, value: any = null) {
+	expect(type: string, value: any = null): any {
 		let val = this.value;
 		if (this.type != type || !(value == null || val === value)) this.unexpected();
 		this.next();
 		return val;
 	}
 
-	parse() {
+	parse(): GrammarDeclaration {
 		return parseGrammar(this);
 	}
 }

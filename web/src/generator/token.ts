@@ -1,16 +1,19 @@
-import { Seq } from "@lezer/lr/dist/constants";
-
+import { Seq } from "../lr/constants";
 import { GenError } from "./error";
 import { Term, union } from "./grammar";
 
 export const MAX_CHAR = 0xffff;
 
 export class Edge {
-	constructor(
-		readonly from: number,
-		readonly to: number,
-		readonly target: State,
-	) {}
+	readonly from: number;
+	readonly to: number;
+	readonly target: State;
+
+	constructor(from: number, to: number, target: State) {
+		this.from = from;
+		this.to = to;
+		this.target = target;
+	}
 
 	toString() {
 		return `-> ${this.target.id}[label=${JSON.stringify(
@@ -99,21 +102,23 @@ let stateID = 1;
 
 export class State {
 	edges: Edge[] = [];
+	readonly accepting: Term[];
+	readonly id: number;
 
-	constructor(
-		readonly accepting: Term[] = [],
-		readonly id = stateID++,
-	) {}
+	constructor(accepting: Term[] = [], id: number = stateID++) {
+		this.accepting = accepting;
+		this.id = id;
+	}
 
-	edge(from: number, to: number, target: State) {
+	edge(from: number, to: number, target: State): void {
 		this.edges.push(new Edge(from, to, target));
 	}
 
-	nullEdge(target: State) {
+	nullEdge(target: State): void {
 		this.edge(-1, -1, target);
 	}
 
-	compile() {
+	compile(): State {
 		let labeled: { [id: string]: State } = Object.create(null),
 			localID = 0;
 		let startState = explore(this.closure().sort((a, b) => a.id - b.id));
@@ -138,7 +143,7 @@ export class State {
 		}
 	}
 
-	closure() {
+	closure(): State[] {
 		let result: State[] = [],
 			seen: { [id: number]: boolean } = Object.create(null);
 		function explore(state: State): void {
@@ -229,7 +234,7 @@ export class State {
 		return result;
 	}
 
-	reachable(f: (s: State, edges: Edge[]) => void) {
+	reachable(f: (s: State, edges: Edge[]) => void): void {
 		let seen: State[] = [],
 			edges: Edge[] = [];
 		(function explore(s: State) {
@@ -244,7 +249,7 @@ export class State {
 		})(this);
 	}
 
-	toString() {
+	toString(): string {
 		let out = "digraph {\n";
 		this.reachable((state) => {
 			if (state.accepting.length)
@@ -266,7 +271,10 @@ export class State {
 	//    states, sorted by precedence
 	//  - Triples for the edges: each with a low and high bound and the
 	//    offset of the next state.
-	toArray(groupMasks: { [id: number]: number }, precedence: readonly number[]) {
+	toArray(
+		groupMasks: { [id: number]: number },
+		precedence: readonly number[],
+	): Uint16Array<ArrayBuffer> {
 		let offsets: number[] = []; // Used to 'link' the states after building the arrays
 		let data: number[] = [];
 		this.reachable((state) => {
@@ -285,7 +293,7 @@ export class State {
 		return Uint16Array.from(data);
 	}
 
-	stateMask(groupMasks: { [id: number]: number }) {
+	stateMask(groupMasks: { [id: number]: number }): number {
 		let mask = 0;
 		this.reachable((state) => {
 			for (let term of state.accepting) mask |= groupMasks[term.id] || 0xffff;
@@ -295,16 +303,28 @@ export class State {
 }
 
 export class Conflict {
+	readonly a: Term;
+	readonly b: Term;
+	public soft: number;
+	readonly exampleA: string;
+	readonly exampleB?: string;
+
 	constructor(
-		readonly a: Term,
-		readonly b: Term,
+		a: Term,
+		b: Term,
 		// Conflicts between two non-cyclic tokens are marked as
 		// 'soft', with a negative number if a is shorter than
 		// b, and a positive if b is shorter than a.
-		public soft: number,
-		readonly exampleA: string,
-		readonly exampleB?: string,
-	) {}
+		soft: number,
+		exampleA: string,
+		exampleB?: string,
+	) {
+		this.a = a;
+		this.b = b;
+		this.soft = soft;
+		this.exampleA = exampleA;
+		this.exampleB = exampleB;
+	}
 }
 
 function exampleFromEdges(edges: readonly Edge[]) {
@@ -329,11 +349,15 @@ function sameSet<T>(a: readonly T[], b: readonly T[]) {
 }
 
 class MergedEdge {
-	constructor(
-		readonly from: number,
-		readonly to: number,
-		readonly targets: State[],
-	) {}
+	readonly from: number;
+	readonly to: number;
+	readonly targets: State[];
+
+	constructor(from: number, to: number, targets: State[]) {
+		this.from = from;
+		this.to = to;
+		this.targets = targets;
+	}
 }
 
 // Merge multiple edges (tagged by character ranges) into a set of
