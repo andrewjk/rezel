@@ -126,6 +126,7 @@ public class InputStream {
         
         if idx >= 0 && idx < chunk.count {
             pos = self.pos + offset
+            guard !chunk.isEmpty else { return -1 }
             result = Int(chunk.utf16[chunk.index(chunk.startIndex, offsetBy: idx)])
         } else {
             guard let resolved = resolveOffset(offset, assoc: 1) else {
@@ -133,11 +134,12 @@ public class InputStream {
             }
             pos = resolved
             if pos >= chunk2Pos && pos < chunk2Pos + chunk2.count {
+                guard !chunk2.isEmpty else { return -1 }
                 result = Int(chunk2.utf16[chunk2.index(chunk2.startIndex, offsetBy: pos - chunk2Pos)])
             } else {
                 var i = rangeIndex
                 var currentRange = range
-                while currentRange.to <= pos {
+                while currentRange.to <= pos && i + 1 < ranges.count {
                     currentRange = ranges[i + 1]
                     i += 1
                 }
@@ -150,6 +152,7 @@ public class InputStream {
                     let endIndex = chunk2.index(chunk2.startIndex, offsetBy: endOffset)
                     chunk2 = String(chunk2[..<endIndex])
                 }
+                guard !chunk2.isEmpty else { return -1 }
                 result = Int(chunk2.utf16[chunk2.startIndex])
             }
         }
@@ -196,9 +199,8 @@ public class InputStream {
             let end = pos + nextChunk.count
             
             if end > range.to {
-                if let endIndex = nextChunk.index(nextChunk.startIndex, offsetBy: range.to - pos) {
-                    chunk = String(nextChunk[..<endIndex])
-                }
+                let endIndex = nextChunk.index(nextChunk.startIndex, offsetBy: range.to - pos)
+                chunk = String(nextChunk[..<endIndex])
             } else {
                 chunk = nextChunk
             }
@@ -208,6 +210,7 @@ public class InputStream {
         }
     }
     
+    @discardableResult
     private func readNext() -> Int {
         if chunkOff >= chunk.count {
             getChunk()
@@ -225,17 +228,18 @@ public class InputStream {
     @discardableResult
     func advance(_ n: Int = 1) -> Int {
         chunkOff += n
+        var remaining = n
         
-        while pos + n >= range.to {
+        while pos + remaining >= range.to {
             if rangeIndex == ranges.count - 1 {
                 return setDone()
             }
-            n -= range.to - pos
+            remaining -= range.to - pos
             range = ranges[rangeIndex + 1]
             pos = range.from
         }
         
-        pos += n
+        pos += remaining
         
         if pos >= token.lookAhead {
             token.lookAhead = pos + 1
@@ -244,11 +248,14 @@ public class InputStream {
         return readNext()
     }
     
+    @discardableResult
     private func setDone() -> Int {
-        pos = chunkPos = end
+        chunkPos = end
+        pos = end
         range = ranges[ranges.count - 1]
         chunk = ""
-        return (next = -1)
+        next = -1
+        return next
     }
     
     /// @internal
@@ -303,7 +310,7 @@ public class InputStream {
         }
         
         if from >= range.from && to <= range.to {
-            return input.read(from, to)
+            return input.read(from: from, to: to)
         }
         
         var result = ""
@@ -312,7 +319,7 @@ public class InputStream {
                 break
             }
             if r.to > from {
-                result += input.read(max(from, r.from), min(to, r.to))
+                result += input.read(from: max(from, r.from), to: min(to, r.to))
             }
         }
         
@@ -347,7 +354,7 @@ public class TokenGroup: Tokenizer {
     }
     
     public func token(_ input: InputStream, _ stack: Stack) {
-        readToken(data: data, input: input, stack: stack, id: id, parserData: stack.p.parser.data, precTable: stack.p.parser.tokenPrecTable)
+        readToken(data: data, input: input, stack: stack, group: id, precTable: stack.p.parser.data.map { Int($0) }, precOffset: stack.p.parser.tokenPrecTable)
     }
 }
 
@@ -380,8 +387,8 @@ public class LocalTokenGroup: Tokenizer {
                 input: input,
                 stack: stack,
                 group: 0,
-                parserData: data,
-                precTable: precTable
+                precTable: stack.p.parser.data.map { Int($0) },
+                precOffset: precTable
             )
             
             if input.token.value > -1 {
@@ -399,12 +406,12 @@ public class LocalTokenGroup: Tokenizer {
             guard let nextPos = nextPos else {
                 break
             }
-            input.reset(nextPos, input.token)
+            _ = input.reset(nextPos, token: input.token)
         }
         
         if skipped > 0 {
-            input.reset(start, input.token)
-            input.acceptToken(elseToken!, skipped)
+            _ = input.reset(start, token: input.token)
+            input.acceptToken(elseToken!, endOffset: skipped)
         }
     }
 }
@@ -517,7 +524,7 @@ internal func readToken(
         
         let next = input.next
         var low = 0
-        let high = data[state + 2]
+        var high = data[state + 2]
         
         // Special case for EOF
         if input.next < 0 && high > low && data[accEnd + high * 3 - 3] == Seq.end {
@@ -565,9 +572,9 @@ internal func overrides(
     tableData: [Int],
     tableOffset: Int
 ) -> Bool {
-    let iPrev = findOffset(tableData, tableOffset, prev)
+    let iPrev = findOffset(tableData, start: tableOffset, term: prev)
     if iPrev < 0 {
-        return findOffset(tableData, tableOffset, token) < 0
+        return findOffset(tableData, start: tableOffset, term: token) < 0
     }
     return true
 }

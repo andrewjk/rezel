@@ -29,6 +29,7 @@ public func decodeArray(_ input: ArrayOrString) -> [Int] {
             while true {
                 guard pos < strInput.count else { fatalError("Unexpected end of input") }
                 
+                guard pos < strInput.utf16.count else { fatalError("Unexpected end of input") }
                 let nextChar = strInput.utf16[strInput.index(strInput.startIndex, offsetBy: pos)]
                 var stop = false
                 

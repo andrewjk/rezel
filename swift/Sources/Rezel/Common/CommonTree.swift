@@ -72,7 +72,7 @@ public final class NodeProp<T>: NodePropProtocol {
             matchFunc = fn
         }
         
-        return { type in
+        return { (type: NodeType) -> (any NodePropProtocol, Any)? in
             let result = matchFunc(type)
             if result == nil {
                 return nil
@@ -190,7 +190,7 @@ public final class MountedTree {
 
 /// Type returned by NodeProp.add. Describes whether a prop should be
 /// added to a given node type in a node set, and what value it should have.
-public typealias NodePropSource = (NodeType) -> (any NodeProp<Any>, Any)?
+public typealias NodePropSource = (NodeType) -> (any NodePropProtocol, Any)?
 
 internal enum NodeFlag: Int {
     case top = 1
@@ -235,16 +235,14 @@ public final class NodeType {
                     (spec.skipped ? NodeFlag.skipped.rawValue : 0) |
                     (spec.error ? NodeFlag.error.rawValue : 0) |
                     (spec.name == nil ? NodeFlag.anonymous.rawValue : 0)
-        
-        let type = NodeType(name: spec.name ?? "", props: props, id: spec.id, flags: flags)
-        
+
         if let specProps = spec.props {
             for src in specProps {
                 let propSource: NodePropSource
                 if let dict = src as? [String: Any] {
                     propSource = { nodeType in
                         if let value = dict[nodeType.name] {
-                            return (nodePropContextHash as any NodeProp<Any>, value)
+                            return (nodePropContextHash, value)
                         }
                         return nil
                     }
@@ -254,27 +252,9 @@ public final class NodeType {
                     continue
                 }
 
-                if let result = propSource(type) {
-                    let prop = result.0
-                    let value = result.1
-                    if let propAny = prop as? any NodePropProtocol {
-                        if propAny.perNode {
-                            fatalError("Can't store a per-node prop on a node type")
-                        }
-                        props[propAny.id] = value
-                    }
-                }
-            }
-        }
-                        return nil
-                    }
-                } else if let fn = src as? NodePropSource {
-                    propSource = fn
-                } else {
-                    continue
-                }
-
-                if let result = propSource(type) {
+                if let result = propSource(
+                    NodeType(name: spec.name ?? "", props: props, id: spec.id, flags: flags)
+                ) {
                     let prop = result.0
                     let value = result.1
                     if prop.perNode {
@@ -284,8 +264,8 @@ public final class NodeType {
                 }
             }
         }
-        
-        return type
+
+        return NodeType(name: spec.name ?? "", props: props, id: spec.id, flags: flags)
     }
     
     /// Retrieves a node prop for this type. Will return `nil` if
@@ -358,6 +338,12 @@ public final class NodeType {
     }
 }
 
+extension NodeType: Equatable {
+    public static func == (lhs: NodeType, rhs: NodeType) -> Bool {
+        return lhs === rhs
+    }
+}
+
 public enum StringOrInt {
     case string(String)
     case int(Int)
@@ -415,14 +401,15 @@ public final class NodeSet {
                     if newProps == nil {
                         newProps = type.props
                     }
+                    let prop = add.0
                     let value = add.1
-                    if let prop = add.0 as? NodeProp<Any> {
-                        let propId = prop.id
-                        if let combine = prop.combine, newProps![propId] != nil {
-                            newProps![propId] = combine(newProps![propId] as! Any, value)
-                        } else {
-                            newProps![propId] = value
-                        }
+                    let propId = prop.id
+                    if let nodeProp = prop as? NodeProp<Any>,
+                       let combine = nodeProp.combine,
+                       newProps![propId] != nil {
+                        newProps![propId] = combine(newProps![propId]!, value)
+                    } else {
+                        newProps![propId] = value
                     }
                 }
             }
@@ -544,14 +531,14 @@ public final class Tree {
     
     /// Get a tree cursor positioned at the top of the tree.
     public func cursor(mode: IterMode = []) -> TreeCursor {
-        return TreeCursor(treeNode: topNode as! TreeNode, bufferNode: nil, mode: mode)
+        return TreeCursor(treeNode: topNode as? TreeNode, bufferNode: nil, mode: mode)
     }
     
     /// Get a tree cursor pointing into this tree at the given position and side.
     public func cursorAt(pos: Int, side: SideInt = 0, mode: IterMode = []) -> TreeCursor {
         let scope = topNode
-        let cursor = TreeCursor(treeNode: scope as! TreeNode, bufferNode: nil, mode: mode)
-        cursor.moveTo(pos: pos, side: side)
+        let cursor = TreeCursor(treeNode: scope as? TreeNode, bufferNode: nil, mode: mode)
+        _ = cursor.moveTo(pos: pos, side: side)
         cachedNode[self] = cursor._tree
         return cursor
     }
@@ -594,11 +581,11 @@ public final class Tree {
         let anon = mode.contains(.includeAnonymous)
         let fullMode = mode.union(.includeAnonymous)
         
-        var c = cursor(mode: fullMode)
+        let c = cursor(mode: fullMode)
         
         while true {
             var entered = false
-            if c.from <= to && c.to >= from && ((!anon && !c.type.isAnonymous) || enter(c) != false) {
+            if c.from <= to && c.to >= from && (anon || !c.type.isAnonymous) && enter(c) != false {
                 if c.firstChild() {
                     continue
                 }
@@ -863,7 +850,8 @@ public final class TreeBuffer {
         var result: [String] = []
         var index = 0
         while index < buffer.count {
-            result.append(childString(index: index))
+            let x = childString(index: index)
+            result.append(x)
             index = Int(buffer[index + 3])
         }
         return result.joined(separator: ",")
@@ -945,39 +933,45 @@ public protocol SyntaxNodeRef {
     func matchContext(context: [String]) -> Bool
 }
 
-internal class BaseNode: SyntaxNodeRef {
+public class BaseNode: SyntaxNode {
+    public var from: Int { fatalError("Subclass must implement") }
+    public var to: Int { fatalError("Subclass must implement") }
+    public var type: NodeType { fatalError("Subclass must implement") }
+    public var name: String { fatalError("Subclass must implement") }
+    public var tree: Tree? { fatalError("Subclass must implement") }
+    
     public var node: SyntaxNode {
-        return self as! SyntaxNode
+        return self
     }
 
-    func cursor(mode: IterMode?) -> TreeCursor {
+    public func cursor(mode: IterMode?) -> TreeCursor {
         return TreeCursor(treeNode: self as? TreeNode, bufferNode: self as? BufferNode, mode: mode ?? [])
     }
 
-    func getChild(type: StringOrInt, before: StringOrInt? = nil, after: StringOrInt? = nil) -> SyntaxNode? {
+    public func getChild(type: StringOrInt, before: StringOrInt? = nil, after: StringOrInt? = nil) -> SyntaxNode? {
         let r = getChildren(type: type, before: before, after: after)
         return r.first
     }
 
-    func getChildren(type: StringOrInt, before: StringOrInt? = nil, after: StringOrInt? = nil) -> [SyntaxNode] {
+    public func getChildren(type: StringOrInt, before: StringOrInt? = nil, after: StringOrInt? = nil) -> [SyntaxNode] {
         return Rezel.getChildren(node: self, type: type, before: before, after: after)
     }
 
-    func resolve(pos: Int, side: SideInt? = nil) -> SyntaxNode {
+    public func resolve(pos: Int, side: SideInt? = nil) -> SyntaxNode {
         return resolveNode(node: self, pos: pos, side: side ?? 0, overlays: false)
     }
 
-    func resolveInner(pos: Int, side: SideInt? = nil) -> SyntaxNode {
+    public func resolveInner(pos: Int, side: SideInt? = nil) -> SyntaxNode {
         return resolveNode(node: self, pos: pos, side: side ?? 0, overlays: true)
     }
-
-    func matchContext(context: [String]) -> Bool {
-        return matchNodeContext(node: (self as! SyntaxNode).parent, context: context)
+    
+    public func matchContext(context: [String]) -> Bool {
+        return matchNodeContext(node: self.parent, context: context)
     }
 
-    func enterUnfinishedNodesBefore(pos: Int) -> SyntaxNode {
-        var scan = (self as! SyntaxNode).childBefore(pos: pos)
-        var currentNode: SyntaxNode = self as! SyntaxNode
+    public func enterUnfinishedNodesBefore(pos: Int) -> SyntaxNode {
+        var scan = self.childBefore(pos: pos)
+        var currentNode: SyntaxNode = self
 
         while let currentScan = scan {
             let last = currentScan.lastChild
@@ -996,6 +990,16 @@ internal class BaseNode: SyntaxNodeRef {
     }
 
     // Abstract properties and methods to be implemented by subclasses
+    public var parent: SyntaxNode? { fatalError("Subclass must implement") }
+    public var firstChild: SyntaxNode? { fatalError("Subclass must implement") }
+    public var lastChild: SyntaxNode? { fatalError("Subclass must implement") }
+    public func childAfter(pos: Int) -> SyntaxNode? { fatalError("Subclass must implement") }
+    public func childBefore(pos: Int) -> SyntaxNode? { fatalError("Subclass must implement") }
+    public func enter(pos: Int, side: SideInt, mode: IterMode?) -> SyntaxNode? { fatalError("Subclass must implement") }
+    public var nextSibling: SyntaxNode? { fatalError("Subclass must implement") }
+    public var prevSibling: SyntaxNode? { fatalError("Subclass must implement") }
+    public func prop<T>(prop: NodeProp<T>) -> T? { fatalError("Subclass must implement") }
+    public func toTree() -> Tree { fatalError("Subclass must implement") }
 }
 
 public final class TreeNode: BaseNode {
@@ -1031,11 +1035,11 @@ public final class TreeNode: BaseNode {
         return _tree
     }
     
-    func prop<T>(prop: NodeProp<T>) -> T? {
+    public override func prop<T>(prop: NodeProp<T>) -> T? {
         return _tree.prop(prop: prop)
     }
     
-    func toTree() -> Tree {
+    public override func toTree() -> Tree {
         return _tree
     }
     
@@ -1051,53 +1055,53 @@ public final class TreeNode: BaseNode {
         return val
     }
     
-    var parent: SyntaxNode? {
+    public override var parent: SyntaxNode? {
         return _parent?.nextSignificantParent()
     }
     
-    var nextSibling: SyntaxNode? {
+    public override var nextSibling: SyntaxNode? {
         guard let parent = _parent, index >= 0 else {
             return nil
         }
         return parent.nextChild(i: index + 1, dir: 1, pos: 0, side: .dontCare)
     }
     
-    var prevSibling: SyntaxNode? {
+    public override var prevSibling: SyntaxNode? {
         guard let parent = _parent, index >= 0 else {
             return nil
         }
         return parent.nextChild(i: index - 1, dir: -1, pos: 0, side: .dontCare)
     }
     
-    var firstChild: SyntaxNode? {
+    public override var firstChild: SyntaxNode? {
         return nextChild(i: 0, dir: 1, pos: 0, side: .dontCare)
     }
     
-    var lastChild: SyntaxNode? {
+    public override var lastChild: SyntaxNode? {
         return nextChild(i: _tree.children.count - 1, dir: -1, pos: 0, side: .dontCare)
     }
     
-    func childAfter(pos: Int) -> SyntaxNode? {
+    public override func childAfter(pos: Int) -> SyntaxNode? {
         return nextChild(i: 0, dir: 1, pos: pos, side: .after)
     }
     
-    func childBefore(pos: Int) -> SyntaxNode? {
+    public override func childBefore(pos: Int) -> SyntaxNode? {
         return nextChild(i: _tree.children.count - 1, dir: -1, pos: pos, side: .before)
     }
     
     func nextChild(i: Int, dir: Int, pos: Int, side: Side, mode: IterMode = []) -> SyntaxNode? {
         var parent = self
-        
+        var currentI = i
+
         while true {
             let children = parent._tree.children
             let positions = parent._tree.positions
             let end = dir > 0 ? children.count : -1
-            
-            var currentI = i
+
             while currentI != end {
                 let next = children[currentI]
                 let start = positions[currentI] + parent.from
-                
+
                 let shouldContinue: Bool
                 if let nextTree = next.asTree,
                    mode.contains(.enterBracketed),
@@ -1112,7 +1116,7 @@ public final class TreeNode: BaseNode {
                 } else {
                     shouldContinue = false
                 }
-                
+
                 if !shouldContinue {
                     if case .buffer(let buffer) = next {
                         if mode.contains(.excludeBuffers) {
@@ -1130,9 +1134,9 @@ public final class TreeNode: BaseNode {
                            mounted.overlay == nil {
                             return TreeNode(tree: mounted.tree, from: start, index: currentI, parent: parent)
                         }
-                        
+
                         let inner = TreeNode(tree: next.asTree!, from: start, index: currentI, parent: parent)
-                        
+
                         if mode.contains(.includeAnonymous) || !inner.type.isAnonymous {
                             return inner
                         } else {
@@ -1141,25 +1145,26 @@ public final class TreeNode: BaseNode {
                         }
                     }
                 }
-                
+
                 currentI += dir
             }
-            
+
             if mode.contains(.includeAnonymous) || !parent.type.isAnonymous {
                 return nil
             }
-            
+
             let nextIndex = parent.index >= 0 ? parent.index + dir : (dir < 0 ? -1 : parent._parent!._tree.children.count)
             guard let nextParent = parent._parent else {
                 return nil
             }
             parent = nextParent
-            
-            i = nextIndex
+
+            currentI = nextIndex
         }
     }
     
-    func enter(pos: Int, side: SideInt, mode: IterMode = []) -> SyntaxNode? {
+    public override func enter(pos: Int, side: SideInt, mode: IterMode?) -> SyntaxNode? {
+        let mode = mode ?? []
         if let mounted = MountedTree.get(tree: _tree), let overlay = mounted.overlay, !mode.contains(.ignoreOverlays) {
             let rPos = pos - from
             let enterBracketed = mode.contains(.enterBracketed) && mounted.bracketed
@@ -1189,10 +1194,97 @@ public final class TreeNode: BaseNode {
     }
 }
 
+internal enum Side: Int {
+    case before = -2
+    case atOrBefore = -1
+    case around = 0
+    case atOrAfter = 1
+    case after = 2
+    case dontCare = 4
+}
+
+public typealias SideInt = Int
+
+internal func checkSide(side: Side, pos: Int, from: Int, to: Int) -> Bool {
+    switch side {
+    case .before:
+        return from < pos
+    case .atOrBefore:
+        return to >= pos && from < pos
+    case .around:
+        return from < pos && to > pos
+    case .atOrAfter:
+        return from <= pos && to > pos
+    case .after:
+        return to > pos
+    case .dontCare:
+        return true
+    }
+}
+
+internal func resolveNode(node: SyntaxNode, pos: Int, side: Int, overlays: Bool) -> SyntaxNode {
+    var currentNode = node
+
+    while currentNode.from == currentNode.to ||
+          (side < 1 ? currentNode.from >= pos : currentNode.from > pos) ||
+          (side > -1 ? currentNode.to <= pos : currentNode.to < pos) {
+        let parent = (!overlays && currentNode is TreeNode && (currentNode as! TreeNode).index < 0) ? nil : currentNode.parent
+        if parent == nil {
+            return currentNode
+        }
+        currentNode = parent!
+    }
+
+    let mode: IterMode = overlays ? [] : .ignoreOverlays
+
+    if overlays {
+        var scan: SyntaxNode? = currentNode
+        var parent = scan?.parent
+
+        while let currentParent = parent {
+            if let treeNode = scan as? TreeNode, treeNode.index < 0 {
+                let entered = currentParent.enter(pos: pos, side: side, mode: mode)
+                if entered?.from != treeNode.from {
+                    currentNode = currentParent
+                }
+            }
+            scan = parent
+            parent = scan?.parent
+        }
+    }
+
+    while true {
+        if let inner = currentNode.enter(pos: pos, side: side, mode: mode) {
+            currentNode = inner
+        } else {
+            return currentNode
+        }
+    }
+}
+
+public protocol SyntaxNode: SyntaxNodeRef {
+    var parent: SyntaxNode? { get }
+    var firstChild: SyntaxNode? { get }
+    var lastChild: SyntaxNode? { get }
+    func childAfter(pos: Int) -> SyntaxNode?
+    func childBefore(pos: Int) -> SyntaxNode?
+    func enter(pos: Int, side: SideInt, mode: IterMode?) -> SyntaxNode?
+    var nextSibling: SyntaxNode? { get }
+    var prevSibling: SyntaxNode? { get }
+    func prop<T>(prop: NodeProp<T>) -> T?
+    func cursor(mode: IterMode?) -> TreeCursor
+    func resolve(pos: Int, side: SideInt?) -> SyntaxNode
+    func resolveInner(pos: Int, side: SideInt?) -> SyntaxNode
+    func enterUnfinishedNodesBefore(pos: Int) -> SyntaxNode
+    func toTree() -> Tree
+    func getChild(type: StringOrInt, before: StringOrInt?, after: StringOrInt?) -> SyntaxNode?
+    func getChildren(type: StringOrInt, before: StringOrInt?, after: StringOrInt?) -> [SyntaxNode]
+}
+
 internal func getChildren(node: SyntaxNode, type: StringOrInt, before: StringOrInt?, after: StringOrInt?) -> [SyntaxNode] {
     let cur = node.cursor(mode: [])
     var result: [SyntaxNode] = []
-    
+
     if !cur.firstChild() {
         return result
     }
@@ -1222,8 +1314,8 @@ internal func getChildren(node: SyntaxNode, type: StringOrInt, before: StringOrI
     }
 }
 
-internal func matchNodeContext(node: SyntaxNode?, context: [String], i: Int = context.count - 1) -> Bool {
-    var currentI = i
+internal func matchNodeContext(node: SyntaxNode?, context: [String]) -> Bool {
+    var currentI = context.count - 1
     var currentNode = node
     
     while currentI >= 0 {
@@ -1263,23 +1355,23 @@ public final class BufferNode: BaseNode {
     let _parent: BufferNode?
     let index: Int
     
-    var type: NodeType {
+    public override var type: NodeType {
         return context.buffer.set.types[Int(context.buffer.buffer[index])]
     }
     
-    var name: String {
+    public override var name: String {
         return type.name
     }
     
-    var from: Int {
+    public override var from: Int {
         return context.start + Int(context.buffer.buffer[index + 1])
     }
     
-    var to: Int {
+    public override var to: Int {
         return context.start + Int(context.buffer.buffer[index + 2])
     }
     
-    var tree: Tree? {
+    public override var tree: Tree? {
         return nil
     }
     
@@ -1289,7 +1381,7 @@ public final class BufferNode: BaseNode {
         self.index = index
     }
     
-    func toTree() -> Tree {
+    public override func toTree() -> Tree {
         var children: [TreeOrBuffer] = []
         var positions: [Int] = []
         
@@ -1309,31 +1401,32 @@ public final class BufferNode: BaseNode {
         return context.buffer.childString(index: index)
     }
     
-    func prop<T>(prop: NodeProp<T>) -> T? {
+    public override func prop<T>(prop: NodeProp<T>) -> T? {
         return type.prop(prop: prop)
     }
     
-    var parent: SyntaxNode? {
+    public override var parent: SyntaxNode? {
         return _parent ?? context.parent.nextSignificantParent()
     }
     
-    var firstChild: SyntaxNode? {
+    public override var firstChild: SyntaxNode? {
         return child(dir: 1, pos: 0, side: .dontCare)
     }
     
-    var lastChild: SyntaxNode? {
+    public override var lastChild: SyntaxNode? {
         return child(dir: -1, pos: 0, side: .dontCare)
     }
     
-    func childAfter(pos: Int) -> SyntaxNode? {
+    public override func childAfter(pos: Int) -> SyntaxNode? {
         return child(dir: 1, pos: pos, side: .after)
     }
     
-    func childBefore(pos: Int) -> SyntaxNode? {
+    public override func childBefore(pos: Int) -> SyntaxNode? {
         return child(dir: -1, pos: pos, side: .before)
     }
     
-    func enter(pos: Int, side: SideInt, mode: IterMode = []) -> SyntaxNode? {
+    public override func enter(pos: Int, side: SideInt, mode: IterMode?) -> SyntaxNode? {
+        let mode = mode ?? []
         if mode.contains(.excludeBuffers) {
             return nil
         }
@@ -1361,7 +1454,7 @@ public final class BufferNode: BaseNode {
         return index < 0 ? nil : BufferNode(context: context, parent: self, index: index)
     }
     
-    var nextSibling: SyntaxNode? {
+    public override var nextSibling: SyntaxNode? {
         let after = Int(context.buffer.buffer[index + 3])
         let parentEnd = _parent != nil ? Int(context.buffer.buffer[(_parent?.index)! + 3]) : context.buffer.buffer.count
         
@@ -1372,7 +1465,7 @@ public final class BufferNode: BaseNode {
         return externalSibling(dir: 1)
     }
     
-    var prevSibling: SyntaxNode? {
+    public override var prevSibling: SyntaxNode? {
         let parentStart = _parent != nil ? _parent!.index + 4 : 0
         
         if index == parentStart {
@@ -1473,9 +1566,9 @@ internal func stackIterator(tree: Tree, pos: Int, side: Int) -> NodeIterator {
 
 /// A tree cursor object focuses on a given node in a syntax tree, and allows you to move to adjacent nodes.
 public final class TreeCursor: SyntaxNodeRef {
-    var type: NodeType!
-    var from: Int!
-    var to: Int!
+    public var type: NodeType = NodeType.none
+    public var from: Int = 0
+    public var to: Int = 0
     var _tree: TreeNode!
     var buffer: BufferContext? = nil
     private var stack: [Int] = []
@@ -1487,17 +1580,17 @@ public final class TreeCursor: SyntaxNodeRef {
         self.mode = mode.subtracting(.enterBracketed)
         
         if let treeNode = treeNode {
-            yieldNode(node: treeNode)
+            _ = yieldNode(node: treeNode)
         } else if let bufferNode = bufferNode {
             _tree = bufferNode.context.parent
             buffer = bufferNode.context
-            var n: BufferNode? = bufferNode
+            var n = bufferNode._parent
             while let current = n {
                 stack.insert(current.index, at: 0)
                 n = current._parent
             }
             self.bufferNode = bufferNode
-            yieldBuf(index: bufferNode.index)
+            _ = yieldBuf(index: bufferNode.index)
         } else {
             fatalError("Either treeNode or bufferNode must be provided")
         }
@@ -1553,7 +1646,14 @@ public final class TreeCursor: SyntaxNodeRef {
     func enterChild(dir: Int, pos: Int, side: Side) -> Bool {
         if buffer == nil {
             let nextChildIndex = dir < 0 ? _tree._tree.children.count - 1 : 0
-            return yield(node: _tree.nextChild(i: nextChildIndex, dir: dir, pos: pos, side: side, mode: mode))
+            if let result = _tree.nextChild(i: nextChildIndex, dir: dir, pos: pos, side: side, mode: mode) {
+                if let treeNode = result as? TreeNode {
+                    return yield(treeNode: treeNode, bufferNode: nil)
+                } else if let bufferNode = result as? BufferNode {
+                    return yield(treeNode: nil, bufferNode: bufferNode)
+                }
+            }
+            return false
         }
         
         let buf = buffer!.buffer
@@ -1569,7 +1669,8 @@ public final class TreeCursor: SyntaxNodeRef {
             return false
         }
         
-        stack.append(index)
+        stack.append(self.index)
+        self.index = index
         return yieldBuf(index: index)
     }
     
@@ -1592,7 +1693,14 @@ public final class TreeCursor: SyntaxNodeRef {
     func enter(pos: Int, side: SideInt = 0, mode: IterMode? = nil) -> Bool {
         let actualMode = mode ?? self.mode
         if buffer == nil {
-            return yield(node: _tree.enter(pos: pos, side: side, mode: actualMode))
+            if let result = _tree.enter(pos: pos, side: side, mode: actualMode) {
+                if let treeNode = result as? TreeNode {
+                    return yield(treeNode: treeNode, bufferNode: nil)
+                } else if let bufferNode = result as? BufferNode {
+                    return yield(treeNode: nil, bufferNode: bufferNode)
+                }
+            }
+            return false
         }
         
         if actualMode.contains(.excludeBuffers) {
@@ -1612,9 +1720,9 @@ public final class TreeCursor: SyntaxNodeRef {
             return yieldBuf(index: stack.removeLast())
         }
         
-        let parent = mode.contains(.includeAnonymous) ? buffer!.parent : buffer!.parent.nextSignificantParent()
+        let parent: TreeNode = mode.contains(.includeAnonymous) ? buffer!.parent : buffer!.parent.nextSignificantParent()
         buffer = nil
-        return yieldNode(node: parent as? TreeNode)
+        return yieldNode(node: parent)
     }
     
     func sibling(dir: Int) -> Bool {
@@ -1624,10 +1732,16 @@ public final class TreeCursor: SyntaxNodeRef {
             }
             
             if _tree.index < 0 {
-                return yield(node: nil)
+                return yield(treeNode: nil, bufferNode: nil)
             }
             
-            return yield(node: parent.nextChild(i: _tree.index + dir, dir: dir, pos: 0, side: .dontCare, mode: mode))
+            let result = parent.nextChild(i: _tree.index + dir, dir: dir, pos: 0, side: .dontCare, mode: mode)
+            if let treeNode = result as? TreeNode {
+                return yield(treeNode: treeNode, bufferNode: nil)
+            } else if let bufferNode = result as? BufferNode {
+                return yield(treeNode: nil, bufferNode: bufferNode)
+            }
+            return yield(treeNode: nil, bufferNode: nil)
         }
         
         let buf = buffer!.buffer
@@ -1649,7 +1763,13 @@ public final class TreeCursor: SyntaxNodeRef {
         }
         
         if d < 0 {
-            return yield(node: buffer!.parent.nextChild(i: buffer!.index + dir, dir: dir, pos: 0, side: .dontCare, mode: mode))
+            let result = buffer!.parent.nextChild(i: buffer!.index + dir, dir: dir, pos: 0, side: .dontCare, mode: mode)
+            if let treeNode = result as? TreeNode {
+                return yield(treeNode: treeNode, bufferNode: nil)
+            } else if let bufferNode = result as? BufferNode {
+                return yield(treeNode: nil, bufferNode: bufferNode)
+            }
+            return false
         }
         
         return false
@@ -1669,6 +1789,7 @@ public final class TreeCursor: SyntaxNodeRef {
         let buffer = self.buffer
         
         if let buffer = buffer {
+            index = self.index
             if dir > 0 {
                 if index < buffer.buffer.buffer.count {
                     return false
@@ -1686,12 +1807,13 @@ public final class TreeCursor: SyntaxNodeRef {
             parent = _tree._parent
         }
         
+        if dir < 0 { return false }
+        
         while let currentParent = parent {
             if index > -1 {
-                let start = dir < 0 ? -1 : 0
-                let end = dir < 0 ? index + 1 : currentParent._tree.children.count
+                let end = currentParent._tree.children.count
                 
-                for i in stride(from: index + dir, through: end, by: dir) {
+                for i in stride(from: index + 1, to: end, by: 1) {
                     if i < 0 || i >= currentParent._tree.children.count {
                         continue
                     }
@@ -1699,7 +1821,7 @@ public final class TreeCursor: SyntaxNodeRef {
                     let child = currentParent._tree.children[i]
                     
                     if mode.contains(.includeAnonymous) ||
-                       case .buffer = child ||
+                       child.asTree == nil ||
                        !child.type.isAnonymous ||
                        hasChild(treeOrBuffer: child) {
                         return false
@@ -1753,7 +1875,7 @@ public final class TreeCursor: SyntaxNodeRef {
         return self
     }
     
-    var node: SyntaxNode {
+    public var node: SyntaxNode {
         if buffer == nil {
             return _tree
         }
@@ -1795,7 +1917,7 @@ public final class TreeCursor: SyntaxNodeRef {
         return bufferNode!
     }
     
-    var tree: Tree? {
+    public var tree: Tree? {
         return buffer == nil ? _tree._tree : nil
     }
     
@@ -1837,7 +1959,7 @@ public final class TreeCursor: SyntaxNodeRef {
         }
     }
     
-    func matchContext(context: [String]) -> Bool {
+    public func matchContext(context: [String]) -> Bool {
         if buffer == nil {
             return matchNodeContext(node: node.parent, context: context)
         }
@@ -1849,7 +1971,7 @@ public final class TreeCursor: SyntaxNodeRef {
         
         while i >= 0 {
             if d < 0 {
-                return matchNodeContext(node: _tree, context: context, i: i)
+                return matchNodeContext(node: _tree, context: Array(context[0...i]))
             }
             
             let type = types[Int(buffer.buffer.buffer[stack[d]])]
@@ -1867,7 +1989,7 @@ public final class TreeCursor: SyntaxNodeRef {
         return true
     }
     
-    var name: String {
+    public var name: String {
         return type.name
     }
 }
@@ -1939,6 +2061,7 @@ internal func buildTree(data: BuildData) -> Tree {
         }
         
         let type = types[cursor.id]
+        let nodeID = cursor.id
         let startPos = cursor.start - parentStart
         let end = cursor.end
         let start = cursor.start
@@ -1947,8 +2070,8 @@ internal func buildTree(data: BuildData) -> Tree {
             var node: TreeOrBuffer?
             
             if let bufferSize = findBufferSize(maxSize: cursor.pos - minPos, inRepeat: inRepeat) {
-                let dataArr = [UInt16](repeating: 0, count: bufferSize.size - bufferSize.skip)
-                var endPos = cursor.pos - bufferSize.size
+                var dataArr = [UInt16](repeating: 0, count: bufferSize.size - bufferSize.skip)
+                let endPos = cursor.pos - bufferSize.size
                 var index = dataArr.count
                 
                 while cursor.pos > endPos {
@@ -1969,7 +2092,7 @@ internal func buildTree(data: BuildData) -> Tree {
         
         var localChildren: [TreeOrBuffer] = []
         var localPositions: [Int] = []
-        let localInRepeat = cursor.id >= data.minRepeatType ? cursor.id : -1
+        let localInRepeat = nodeID >= data.minRepeatType ? nodeID : -1
         var lastGroup = 0
         var lastEnd = end
         
@@ -2097,7 +2220,7 @@ internal func buildTree(data: BuildData) -> Tree {
                 j += 1
                 buffer[j] = UInt16(nodes[i + 2] - startPos)
                 j += 1
-                buffer[j] = UInt16(j)
+                buffer[j] = UInt16(j + 1)
                 j += 1
             }
             
@@ -2113,7 +2236,7 @@ internal func buildTree(data: BuildData) -> Tree {
     func makeBalanced(type: NodeType, contextHash: Int) -> ([TreeOrBuffer], [Int], Int) -> Tree {
         return { children, positions, length in
             var lookAhead = 0
-            var lastI = children.count - 1
+            let lastI = children.count - 1
             var last: Tree?
             var lookAheadProp: Int?
             
@@ -2212,9 +2335,9 @@ internal func buildTree(data: BuildData) -> Tree {
         let minStart = fork.end - data.maxBufferLength
         var result: (size: Int, start: Int, skip: Int)? = (size: 0, start: 0, skip: 0)
         
-        var minPos = fork.pos - maxSize
+        let minPos = fork.pos - maxSize
         
-        while fork.pos > minPos {
+        scan: while fork.pos > minPos {
             let nodeSize = fork.size
             
             if fork.id == inRepeat && nodeSize >= 0 {
@@ -2236,12 +2359,12 @@ internal func buildTree(data: BuildData) -> Tree {
             fork.next()
             
             while fork.pos > startPos {
-                let size = fork.size
-                if size < 0 {
-                    if size == -3 || size == -4 {
+                let innerSize = fork.size
+                if innerSize < 0 {
+                    if innerSize == -3 || innerSize == -4 {
                         localSkipped += 4
                     } else {
-                        return result?.size ?? 0 > 4 ? result : nil
+                        break scan
                     }
                 } else if fork.id >= data.minRepeatType {
                     localSkipped += 4
@@ -2285,6 +2408,11 @@ internal func buildTree(data: BuildData) -> Tree {
             buffer[currentIndex - 2] = UInt16(end - bufferStart)
             buffer[currentIndex - 3] = UInt16(start - bufferStart)
             buffer[currentIndex - 4] = UInt16(id)
+            currentIndex -= 4
+        } else if size == -3 {
+            contextHash = id
+        } else if size == -4 {
+            lookAhead = id
         }
         
         return currentIndex
@@ -2314,7 +2442,7 @@ internal func buildTree(data: BuildData) -> Tree {
     )
 }
 
-internal var nodeSizeCache: WeakMap<Tree, Int> = WeakMap()
+internal nonisolated(unsafe) var nodeSizeCache: WeakMap<Tree, Int> = WeakMap()
 
 internal func nodeSize(balanceType: NodeType, node: TreeOrBuffer) -> Int {
     if !balanceType.isAnonymous {
@@ -2335,7 +2463,7 @@ internal func nodeSize(balanceType: NodeType, node: TreeOrBuffer) -> Int {
         
         var size = 1
         for child in tree.children {
-            if child.type != balanceType || case .buffer = child {
+            if child.type != balanceType || child.asTree == nil {
                 size = 1
                 break
             }
@@ -2363,7 +2491,9 @@ internal func balanceRange(
         total += nodeSize(balanceType: balanceType, node: children[i])
     }
     
-    let maxChild = Int(ceil(Double(total * 1.5) / Double(Balance.branchFactor)))
+    let scaledTotal = Double(total) * 1.5
+    let branchFactor = Double(Balance.branchFactor)
+    let maxChild = Int(ceil(scaledTotal / branchFactor))
     var localChildren: [TreeOrBuffer] = []
     var localPositions: [Int] = []
     
@@ -2404,7 +2534,7 @@ internal func balanceRange(
                 localChildren.append(children[groupFrom])
             } else {
                 let groupLength = positions[i - 1] + children[i - 1].length - groupStart
-                localChildren.append(balanceRange(
+                localChildren.append(.tree(balanceRange(
                     balanceType: balanceType,
                     children: children,
                     positions: positions,
@@ -2414,7 +2544,7 @@ internal func balanceRange(
                     length: groupLength,
                     mkTop: nil,
                     mkTree: mkTree
-                ))
+                )))
             }
             
             localPositions.append(groupStart + offset - start)
@@ -2423,8 +2553,10 @@ internal func balanceRange(
     
     divide(children: children, positions: positions, from: from, to: to, offset: 0)
     
-    let finalMkTop = mkTop ?? mkTree
-    return finalMkTop(localChildren, localPositions, length)
+    if let mkTop = mkTop {
+        return mkTop(localChildren, localPositions, length)
+    }
+    return mkTree(localChildren, localPositions, length)
 }
 
 /// Provides a way to associate values with pieces of trees.
@@ -2449,7 +2581,7 @@ public final class NodeWeakMap<T> {
         if let bufferNode = node as? BufferNode {
             setBuffer(buffer: bufferNode.context.buffer, index: bufferNode.index, value: value)
         } else if let treeNode = node as? TreeNode {
-            treeMap[treeNode.tree] = value
+            treeMap[treeNode.tree!] = value
         }
     }
     
@@ -2457,7 +2589,7 @@ public final class NodeWeakMap<T> {
         if let bufferNode = node as? BufferNode {
             return getBuffer(buffer: bufferNode.context.buffer, index: bufferNode.index)
         } else if let treeNode = node as? TreeNode {
-            return treeMap[treeNode.tree]
+            return treeMap[treeNode.tree!]
         }
         return nil
     }
@@ -2490,28 +2622,54 @@ extension TreeOrBuffer {
     }
 }
 
+// Thread-safe lock
+internal final class Lock {
+    private let lock: os_unfair_lock_t
+    
+    init() {
+        lock = .allocate(capacity: 1)
+        lock.initialize(to: os_unfair_lock())
+    }
+    
+    deinit {
+        lock.deinitialize(count: 1)
+        lock.deallocate()
+    }
+    
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        os_unfair_lock_lock(lock)
+        defer { os_unfair_lock_unlock(lock) }
+        return try body()
+    }
+}
+
 // WeakMap implementation
 internal final class WeakMap<Key: AnyObject, Value> {
     private struct WeakBox {
         weak var value: Key?
     }
     
+    private var lock = Lock()
     private var boxes: [WeakBox] = []
     private var values: [ObjectIdentifier: Value] = [:]
     
     subscript(key: Key) -> Value? {
         get {
-            return values[ObjectIdentifier(key)]
+            lock.withLock {
+                values[ObjectIdentifier(key)]
+            }
         }
         set {
             let id = ObjectIdentifier(key)
-            if let newValue = newValue {
-                if values[id] == nil {
-                    boxes.append(WeakBox(value: key))
+            lock.withLock {
+                if let newValue = newValue {
+                    if values[id] == nil {
+                        boxes.append(WeakBox(value: key))
+                    }
+                    values[id] = newValue
+                } else {
+                    values.removeValue(forKey: id)
                 }
-                values[id] = newValue
-            } else {
-                values.removeValue(forKey: id)
             }
         }
     }

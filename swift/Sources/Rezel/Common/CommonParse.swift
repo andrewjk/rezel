@@ -288,8 +288,9 @@ internal final class StringInput: Input {
     }
     
     func chunk(from: Int) -> String {
-        let index = string.index(string.startIndex, offsetBy: from)
-        return String(string[index...])
+        let clamped = min(max(from, 0), string.utf16.count)
+        let idx = String.Index(utf16Offset: clamped, in: string)
+        return String(string[idx...])
     }
     
     var lineChunks: Bool {
@@ -297,8 +298,10 @@ internal final class StringInput: Input {
     }
     
     func read(from: Int, to: Int) -> String {
-        let start = string.index(string.startIndex, offsetBy: from)
-        let end = string.index(string.startIndex, offsetBy: to)
+        let clampedFrom = min(max(from, 0), string.utf16.count)
+        let clampedTo = min(max(to, clampedFrom), string.utf16.count)
+        let start = String.Index(utf16Offset: clampedFrom, in: string)
+        let end = String.Index(utf16Offset: clampedTo, in: string)
         return String(string[start..<end])
     }
 }

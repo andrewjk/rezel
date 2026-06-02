@@ -71,7 +71,7 @@ public struct Specialize {
 }
 
 // Terms are 16-bit numbers
-public struct Term {
+public enum LrTerm {
     // The value of the error term is hard coded, the others are
     // allocated per grammar.
     public static let err: Int = 0

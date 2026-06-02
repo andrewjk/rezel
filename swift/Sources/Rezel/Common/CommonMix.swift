@@ -7,6 +7,15 @@
 
 import Foundation
 
+prefix operator !--
+
+infix operator !--: AssignmentPrecedence
+
+prefix func !--(value: inout Int) -> Int {
+    value -= 1
+    return value
+}
+
 /// Objects returned by the function passed to parseMixed should conform to this
 /// interface.
 public struct NestedParse {
@@ -203,7 +212,7 @@ internal final class MixedParse: PartialParse {
         if innerDone == inner.count {
             var result = baseTree!
             if let stoppedAt = stoppedAt {
-                let propValues = result.propValues + [[stoppedInner, stoppedAt]]
+                let propValues = result.propValues + [PropPair(propId: stoppedInner.id, value: stoppedAt)]
                 result = Tree(
                     type: result.type,
                     children: result.children,
@@ -219,7 +228,7 @@ internal final class MixedParse: PartialParse {
         let done = inner.parse.advance()
         if let done = done {
             self.innerDone += 1
-            var props = Dictionary(uniqueKeysWithValues: inner.target.props ?? [])
+            var props = inner.target.props ?? [:]
             let mountedTree = MountedTree(
                 tree: done,
                 overlay: inner.overlay,
@@ -269,12 +278,10 @@ internal final class MixedParse: PartialParse {
         
         scan: while true {
             var enter = true
-            var rangeResult: NestedParse.OverlayResult?
-            var nest: NestedParse? = nil
             
             if let stoppedAt = stoppedAt, cursor.from >= stoppedAt {
                 enter = false
-            } else if fragmentCursor.hasNode(cursor: cursor) {
+            } else if fragmentCursor.hasNode(node: cursor) {
                 if let overlay = overlay {
                     if let match = overlay.mounts.first(where: { m in
                         m.frag.from <= cursor.from && m.frag.to >= cursor.to && m.mount.overlay != nil
@@ -345,7 +352,7 @@ internal final class MixedParse: PartialParse {
                         
                         let parse: any PartialParse
                         if ranges.isEmpty {
-                            parse = nest.parser.startParse(input: "")
+                            parse = nest.parser.startParse(input: StringInput(string: ""))
                         } else {
                             parse = nest.parser.startParse(input: input, fragments: fragmentsToUse, ranges: ranges)
                         }
@@ -375,14 +382,14 @@ internal final class MixedParse: PartialParse {
                         covered = CoverInfo(ranges: ranges, depth: 0, prev: covered)
                     }
                 }
-            } else if let overlay = overlay,
-                      let rangeResult = overlay.predicate(cursor) {
+            } else if let overlay = overlay {
+                let rangeResult = overlay.predicate(cursor)
                 if rangeResult.from < rangeResult.to {
                     let last = overlay.ranges.count - 1
                     if last >= 0 && overlay.ranges[last].to == rangeResult.from {
                         overlay.ranges[last] = Range(from: overlay.ranges[last].from, to: rangeResult.to)
                     } else {
-                        overlay.ranges.append(rangeResult)
+                        overlay.ranges.append(Range(from: rangeResult.from, to: rangeResult.to))
                     }
                 }
             }
@@ -403,32 +410,38 @@ internal final class MixedParse: PartialParse {
                         break scan
                     }
                     
-                    if var overlay = overlay, !--overlay.depth > 0 {
-                        let ranges = punchRanges(outer: self.ranges, ranges: overlay.ranges)
-                        if !ranges.isEmpty {
-                            checkRanges(ranges: ranges)
-                            let fragmentsToUse = enterFragments(mounts: overlay.mounts, ranges: ranges)
-                            let parse = overlay.parser.startParse(input: input, fragments: fragmentsToUse, ranges: ranges)
-                            let mappedRanges = overlay.ranges.map { r in
-                                Range(from: r.from - overlay.start, to: r.to - overlay.start)
+                    if let currentOverlay = overlay {
+                        currentOverlay.depth -= 1
+                        if currentOverlay.depth == 0 {
+                            let ranges = punchRanges(outer: self.ranges, ranges: currentOverlay.ranges)
+                            if !ranges.isEmpty {
+                                checkRanges(ranges: ranges)
+                                let fragmentsToUse = enterFragments(mounts: currentOverlay.mounts, ranges: ranges)
+                                let parse = currentOverlay.parser.startParse(input: input, fragments: fragmentsToUse, ranges: ranges)
+                                let mappedRanges = currentOverlay.ranges.map { r in
+                                    Range(from: r.from - currentOverlay.start, to: r.to - currentOverlay.start)
+                                }
+                                
+                                let innerParse = InnerParse(
+                                    parser: currentOverlay.parser,
+                                    parse: parse,
+                                    overlay: mappedRanges,
+                                    bracketed: currentOverlay.bracketed,
+                                    target: currentOverlay.target,
+                                    from: ranges[0].from
+                                )
+                                
+                                inner.insert(innerParse, at: currentOverlay.index)
                             }
-                            
-                            let innerParse = InnerParse(
-                                parser: overlay.parser,
-                                parse: parse,
-                                overlay: mappedRanges,
-                                bracketed: overlay.bracketed,
-                                target: overlay.target,
-                                from: ranges[0].from
-                            )
-                            
-                            inner.insert(innerParse, at: overlay.index)
+                            overlay = currentOverlay.prev
                         }
-                        overlay = overlay.prev
                     }
                     
-                    if var covered = covered, !--covered.depth > 0 {
-                        covered = covered.prev
+                    if let currentCovered = covered {
+                        currentCovered.depth -= 1
+                        if currentCovered.depth == 0 {
+                            covered = currentCovered.prev
+                        }
                     }
                 }
             }
@@ -451,7 +464,7 @@ internal func checkCover(covered: [Range], from: Int, to: Int) -> Cover? {
             return range.from <= from && range.to >= to ? .full : .partial
         }
     }
-    return .none
+    return Cover.none
 }
 
 internal func sliceBuf(
@@ -463,7 +476,7 @@ internal func sliceBuf(
     off: Int
 ) {
     if startI < endI {
-        let from = buf.buffer[startI + 1]
+        let from = Int(buf.buffer[startI + 1])
         nodes.append(.buffer(buf.slice(startI: startI, endI: endI, from: from)))
         positions.append(from - off)
     }
@@ -481,7 +494,7 @@ internal func materialize(cursor: TreeCursor) {
     
     let base = cursor.tree!
     let i = base.children.firstIndex(of: .buffer(buffer))!
-    let buf = (base.children[i] as! TreeBuffer)
+    guard case .buffer(let buf) = base.children[i] else { fatalError("Expected buffer") }
     let b = buf.buffer
     var newStack: [Int] = [i]
     
@@ -499,21 +512,21 @@ internal func materialize(cursor: TreeCursor) {
         
         sliceBuf(buf: buf, startI: startI, endI: targetI, nodes: &children, positions: &positions, off: innerOffset)
         
-        let from = b[targetI + 1]
-        let to = b[targetI + 2]
+        let from = Int(b[targetI + 1])
+        let to = Int(b[targetI + 2])
         newStack.append(children.count)
         
         let child: TreeOrBuffer
         if stackPos > 0 {
             let childTree = split(
-                startI: targetI + 4,
-                endI: b[targetI + 3],
-                type: buf.set.types[b[targetI]],
+                startI: Int(b[targetI + 4]),
+                endI: Int(b[targetI + 3]),
+                type: buf.set.types[Int(b[targetI])],
                 innerOffset: from,
                 length: to - from,
                 stackPos: stackPos - 1
             )
-            child = childTree
+            child = .tree(childTree)
         } else {
             child = .tree(node.toTree())
         }
@@ -521,17 +534,19 @@ internal func materialize(cursor: TreeCursor) {
         children.append(child)
         positions.append(from - innerOffset)
         
-        sliceBuf(buf: buf, startI: b[targetI + 3], endI: endI, nodes: &children, positions: &positions, off: innerOffset)
+        sliceBuf(buf: buf, startI: Int(b[targetI + 3]), endI: endI, nodes: &children, positions: &positions, off: innerOffset)
         
         return Tree(type: type, children: children, positions: positions, length: length)
     }
     
-    base.children[i] = .tree(split(startI: 0, endI: b.count, type: NodeType.none, innerOffset: 0, length: buf.length, stackPos: stack.count - 1))
+    var newChildren = base.children
+    newChildren[i] = .tree(split(startI: 0, endI: b.count, type: NodeType.none, innerOffset: 0, length: buf.length, stackPos: stack.count - 1))
     
     for index in newStack {
-        let tree = (cursor.tree!.children[index] as! Tree)
-        let pos = cursor.tree!.positions[index]
-        _ = cursor.yield(node: TreeNode(tree: tree, from: pos + cursor.from, index: index, parent: cursor._tree))
+        if case .tree(let tree) = newChildren[index] {
+            let pos = base.positions[index]
+            _ = cursor.yield(treeNode: TreeNode(tree: tree, from: pos + cursor.from, index: index, parent: cursor._tree), bufferNode: nil)
+        }
     }
 }
 
@@ -543,14 +558,14 @@ internal final class StructureCursor {
     
     init(root: Tree, offset: Int) {
         self.offset = offset
-        self.cursor = root.cursor(mode: IterMode.includeAnonymous | IterMode.ignoreMounts)
+        self.cursor = root.cursor(mode: IterMode.includeAnonymous.union(IterMode.ignoreMounts))
     }
     
     func moveTo(pos: Int) {
         let p = pos - offset
         while !done && cursor.from < p {
             if cursor.to >= pos &&
-               cursor.enter(pos: p, side: 1, mode: IterMode.ignoreOverlays | IterMode.excludeBuffers) {
+               cursor.enter(pos: p, side: 1, mode: IterMode.ignoreOverlays.union(IterMode.excludeBuffers)) {
                 // Entered
             } else if cursor.to <= pos {
                 if !cursor.next(enter: false) {
@@ -606,7 +621,7 @@ internal final class FragmentCursor {
     }
     
     func hasNode(node: TreeCursor) -> Bool {
-        while let curFrag = curFrag, node.from >= curTo {
+        while let _ = curFrag, node.from >= curTo {
             nextFrag()
         }
         
@@ -631,10 +646,10 @@ internal final class FragmentCursor {
     func findMounts(pos: Int, parser: any Parser) -> [ReusableMount] {
         var result: [ReusableMount] = []
         if let inner = inner {
-            inner.cursor.moveTo(pos: pos)
+            _ = inner.cursor.moveTo(pos: pos)
             var posNode: SyntaxNode? = inner.cursor.node
             while let currentPos = posNode {
-                if let mount = currentPos.tree?.prop(prop: NodeProp.mounted),
+                if let mount = currentPos.tree?.prop(prop: nodePropMounted),
                    mount.parser === parser {
                     for i in fragI..<fragments.count {
                         let frag = fragments[i]
@@ -642,7 +657,7 @@ internal final class FragmentCursor {
                             break
                         }
                         if frag.tree === curFrag?.tree {
-                            result.append(ReusableMount(frag: frag, pos: currentPos.from - frag.offset, mount: mount))
+                            result.append(ReusableMount(frag: frag, mount: mount, pos: currentPos.from - frag.offset))
                         }
                     }
                 }

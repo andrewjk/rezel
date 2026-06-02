@@ -13,7 +13,7 @@ public enum HighlighterOrArray {
     case array([any Highlighter])
 }
 
-fileprivate var nextTagID = 0
+fileprivate nonisolated(unsafe) var nextTagID = 0
 
 /// Highlighting tags are markers that denote a highlighting category.
 /// They are associated with parts of a syntax tree by a language mode,
@@ -27,9 +27,9 @@ public final class Tag {
     
     let set: [Tag]
     let base: Tag?
-    let modified: [Modifier]
+    fileprivate let modified: [Modifier]
     
-    init(
+    fileprivate init(
         name: String,
         set: [Tag],
         base: Tag?,
@@ -56,7 +56,7 @@ public final class Tag {
     /// Define a new tag. If `parent` is given, the tag is treated as a
     /// sub-tag of that parent, and highlighters that don't mention this
     /// tag will try to fall back to the parent tag.
-    static func define(_ nameOrParent: StringOrTag = "?", _ parent: Tag? = nil) -> Tag {
+    static func define(_ nameOrParent: StringOrTag = .string("?"), _ parent: Tag? = nil) -> Tag {
         let name: String
         var parentTag = parent
         
@@ -101,7 +101,7 @@ public enum StringOrTag {
     case tag(Tag)
 }
 
-fileprivate var nextModifierID = 0
+fileprivate nonisolated(unsafe) var nextModifierID = 0
 
 fileprivate class Modifier {
     var instances: [Tag] = []
@@ -143,8 +143,8 @@ fileprivate class Modifier {
     }
 }
 
-fileprivate func sameArray<T: Equatable>(a: [T], b: [T]) -> Bool {
-    return a.count == b.count && zip(a, b).allSatisfy { $0 == $1 }
+fileprivate func sameArray<T: AnyObject>(a: [T], b: [T]) -> Bool {
+    return a.count == b.count && zip(a, b).allSatisfy { $0 === $1 }
 }
 
 fileprivate func powerSet<T>(array: [T]) -> [[T]] {
@@ -162,7 +162,7 @@ fileprivate func powerSet<T>(array: [T]) -> [[T]] {
 /// This function is used to add a set of tags to a language syntax
 /// via NodeSet.extend or LRParser.configure.
 public func styleTags(spec: [String: [Tag]]) -> NodePropSource {
-    var byName: [String: Rule] = [:]
+    var byName: [String: StyleRule] = [:]
     
     for (prop, tags) in spec {
         for part in prop.split(separator: " ") where !part.isEmpty {
@@ -215,7 +215,7 @@ public func styleTags(spec: [String: [Tag]]) -> NodePropSource {
                     fatalError("Invalid path: \(part)")
                 }
                 
-                rest = String(part[part.index(part.startIndex, offsetBy: pos)...])
+                rest = part[part.index(part.startIndex, offsetBy: pos)...]
             }
             
             let last = pieces.count - 1
@@ -226,14 +226,14 @@ public func styleTags(spec: [String: [Tag]]) -> NodePropSource {
             }
             
             let context = last > 0 ? Array(pieces[0..<last]) : nil
-            let rule = Rule(tags: tags, mode: mode, context: context)
+            let rule = StyleRule(tags: tags, mode: mode, context: context)
             byName[inner] = rule.sort(other: byName[inner])
         }
     }
     
     return { type in
         if let rule = byName[type.name] {
-            return (ruleNodeProp, rule)
+            return (styleRuleNodeProp, rule)
         }
         return nil
     }
@@ -245,13 +245,13 @@ fileprivate enum Mode: Int {
     case normal = 2
 }
 
-fileprivate class Rule {
+fileprivate class StyleRule {
     let tags: [Tag]
     let mode: Mode
     let context: [String]?
-    var next: Rule?
+    var next: StyleRule?
     
-    init(tags: [Tag], mode: Mode, context: [String]?, next: Rule? = nil) {
+    init(tags: [Tag], mode: Mode, context: [String]?, next: StyleRule? = nil) {
         self.tags = tags
         self.mode = mode
         self.context = context
@@ -266,8 +266,8 @@ fileprivate class Rule {
         return mode == .inherit
     }
     
-    func sort(other: Rule?) -> Rule {
-        var other = other
+    func sort(other: StyleRule?) -> StyleRule {
+        let other = other
         if other == nil || other!.depth < self.depth {
             self.next = other
             return self
@@ -280,16 +280,16 @@ fileprivate class Rule {
         return context?.count ?? 0
     }
     
-    static let empty = Rule(tags: [], mode: .normal, context: nil)
+    static nonisolated(unsafe) let empty = StyleRule(tags: [], mode: .normal, context: nil)
 }
 
-fileprivate let ruleNodeProp = NodeProp<Rule>(
+fileprivate nonisolated(unsafe) let styleRuleNodeProp = NodeProp<StyleRule>(
     config: NodePropConfig(combine: { a, b in
-        var cur: Rule?
-        var root: Rule
-        var take: Rule
-        var ruleA = a
-        var ruleB = b
+        var cur: StyleRule?
+        var root: StyleRule = StyleRule.empty
+        var take: StyleRule
+        var ruleA: StyleRule? = a
+        var ruleB: StyleRule? = b
         
         while ruleA != nil || ruleB != nil {
             if ruleA == nil || (ruleB != nil && ruleA!.depth >= ruleB!.depth) {
@@ -304,7 +304,7 @@ fileprivate let ruleNodeProp = NodeProp<Rule>(
                 continue
             }
             
-            let copy = Rule(tags: take.tags, mode: take.mode, context: take.context)
+            let copy = StyleRule(tags: take.tags, mode: take.mode, context: take.context)
             if let cur = cur {
                 cur.next = copy
             } else {
@@ -359,7 +359,7 @@ public func tagHighlighter(
     tags: [TagStyle],
     options: HighlighterOptions = HighlighterOptions()
 ) -> any Highlighter {
-    var map: [Int: String?] = [:]
+    var map: [Int: String] = [:]
     
     for style in tags {
         switch style.tag {
@@ -380,11 +380,11 @@ public func tagHighlighter(
 }
 
 fileprivate class SimpleHighlighter: Highlighter {
-    let map: [Int: String?]
+    let map: [Int: String]
     let scope: ((NodeType) -> Bool)?
     let all: String?
     
-    init(map: [Int: String?], scope: ((NodeType) -> Bool)?, all: String?) {
+    init(map: [Int: String], scope: ((NodeType) -> Bool)?, all: String?) {
         self.map = map
         self.scope = scope
         self.all = all
@@ -418,7 +418,7 @@ fileprivate func highlightTags(highlighters: [any Highlighter], tags: [Tag]) -> 
 public func highlightTree(
     tree: Tree,
     highlighter: HighlighterOrArray,
-    putStyle: (Int, Int, String) -> Void,
+    putStyle: @escaping (Int, Int, String) -> Void,
     from: Int = 0,
     to: Int? = nil
 ) {
@@ -455,8 +455,8 @@ public func highlightCode(
     code: String,
     tree: Tree,
     highlighter: HighlighterOrArray,
-    putText: (String, String) -> Void,
-    putBreak: () -> Void,
+    putText: @escaping (String, String) -> Void,
+    putBreak: @escaping () -> Void,
     from: Int = 0,
     to: Int? = nil
 ) {
@@ -558,7 +558,7 @@ fileprivate class HighlightBuilder {
         }
         
         var cls = inheritedClass
-        var rule = (cursor.type.prop(prop: ruleNodeProp) as? Rule) ?? Rule.empty
+        let rule = cursor.type.prop(prop: styleRuleNodeProp) ?? StyleRule.empty
         let tagCls = highlightTags(highlighters: highlighters, tags: rule.tags)
         
         if let tagCls = tagCls {
@@ -583,7 +583,7 @@ fileprivate class HighlightBuilder {
         if let tree = cursor.tree,
            let mounted = tree.prop(prop: nodePropMounted),
            let overlay = mounted.overlay {
-            let innerNode = cursor.node.enter(pos: overlay[0].from + start, side: 1)!
+            let innerNode = cursor._tree!.enter(pos: overlay[0].from + start, side: 1, mode: nil)!
             let innerHighlighters = highlighters.filter { h in
                 guard let scope = h.scope else {
                     return true
@@ -636,7 +636,7 @@ fileprivate class HighlightBuilder {
                 _ = cursor.parent()
             }
         } else if cursor.firstChild() {
-            do {
+            repeat {
                 if cursor.to <= from {
                     continue
                 }
@@ -660,7 +660,7 @@ fileprivate class HighlightBuilder {
 
 /// Match a syntax node's highlight rules.
 public func getStyleTags(node: SyntaxNodeRef) -> StyleTagsResult? {
-    var rule = node.type.prop(prop: ruleNodeProp) as? Rule
+    var rule = node.type.prop(prop: styleRuleNodeProp)
     
     while let currentRule = rule, let context = currentRule.context, !node.matchContext(context: context) {
         rule = rule?.next
@@ -766,10 +766,10 @@ public struct Tags {
     public let local: (Tag) -> Tag
     public let special: (Tag) -> Tag
     
-    public static let shared = Tags()
+    public nonisolated(unsafe) static let shared = Tags()
     
     private init() {
-        let t = Tag.define
+        let t = { Tag.define() }
         
         let _comment = t()
         let _name = t()
@@ -874,7 +874,7 @@ public struct Tags {
 }
 
 /// This is a highlighter that adds stable, predictable classes to tokens.
-public let classHighlighter: any Highlighter = tagHighlighter(
+public nonisolated(unsafe) let classHighlighter: any Highlighter = tagHighlighter(
     tags: [
         TagStyle(tag: .tag(Tags.shared.link), class: "tok-link"),
         TagStyle(tag: .tag(Tags.shared.heading), class: "tok-heading"),

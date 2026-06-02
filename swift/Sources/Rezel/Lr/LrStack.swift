@@ -14,6 +14,30 @@ public struct Lookahead {
     public static let margin = 25
 }
 
+private struct AnyContextTracker: ContextTrackerProtocol {
+    let base: ContextTracker<Any>
+    
+    var start: Any { base.start }
+    
+    func shift(_ context: Any, _ term: Int, _ stack: Stack, _ input: InputStream) -> Any {
+        return base.shift(context, term, stack, input)
+    }
+    
+    func reduce(_ context: Any, _ term: Int, _ stack: Stack, _ input: InputStream) -> Any {
+        return base.reduce(context, term, stack, input)
+    }
+    
+    func reuse(_ context: Any, _ node: Tree, _ stack: Stack, _ input: InputStream) -> Any {
+        return base.reuse(context, node, stack, input)
+    }
+    
+    func hash(_ context: Any) -> Int {
+        return base.hash(context)
+    }
+    
+    var strict: Bool { base.strict }
+}
+
 /// A parse stack. These are used internally by the parser to track
 /// parsing progress. They also provide some properties and methods
 /// that external code such as a tokenizer can use to get information
@@ -117,7 +141,7 @@ public final class Stack {
             score: 0,
             buffer: [],
             bufferBase: 0,
-            curContext: cx != nil ? StackContext(tracker: cx!, context: cx.start) : nil,
+            curContext: cx != nil ? StackContext(tracker: AnyContextTracker(base: cx!), context: cx!.start) : nil,
             lookAhead: 0,
             parent: nil
         )
@@ -163,9 +187,9 @@ public final class Stack {
             // Zero-depth reductions are a special case—they add stuff to
             // the stack without popping anything off.
             if type < parser.minRepeatTerm {
-                storeNode(term: type, start: reducePos, end: reducePos, size: lookaheadRecord ? 8 : 4, mustSink: true)
+                storeNode(term: type, reducePos, reducePos, size: lookaheadRecord ? 8 : 4, mustSink: true)
             }
-            reduceContext(term: reducePos)
+            reduceContext(type, reducePos)
             return
         }
         
@@ -184,7 +208,7 @@ public final class Stack {
         // This is a kludge to try and detect overly deep left-associative
         // trees, which will not increase the parse stack depth and thus
         // won't be caught by the regular stack-depth limit check.
-        if size >= Recover.minBigReduction && !parser.nodeSet.types[type]?.isAnonymous ?? false {
+        if size >= Recover.minBigReduction && !parser.nodeSet.types[type].isAnonymous {
             if start == p.lastBigReductionStart {
                 p.bigReductionCount += 1
                 p.lastBigReductionSize = size
@@ -200,8 +224,8 @@ public final class Stack {
         
         // Store normal terms or `R -> R R` repeat reductions
         if type < parser.minRepeatTerm || (action & Action.repeatFlag) != 0 {
-            let pos = parser.stateFlag(state: StateFlag.skipped) ? pos : reducePos
-            storeNode(term: type, start: start, end: pos, count + 4, mustSink: true)
+            let pos = parser.stateFlag(state: state, flag: StateFlag.skipped) ? pos : reducePos
+            storeNode(term: type, start, pos, size: count + 4, mustSink: true)
         }
         
         if (action & Action.stayFlag) != 0 {
@@ -215,17 +239,18 @@ public final class Stack {
             stack.removeLast()
         }
         
-        reduceContext(term: type, start: start)
+        reduceContext(type, start)
     }
     
     // Shift a value into the buffer
     /// @internal
     func storeNode(term: Int, _ start: Int, _ end: Int, size: Int = 4, mustSink: Bool = false) {
-        if term == Term.err &&
+        var size = size
+        if term == LrTerm.err &&
            (stack.isEmpty || stack[stack.count - 1] < bufferBase + buffer.count) {
             // Try to omit/merge adjacent error nodes
             let top = buffer.count
-            if top > 0 && buffer[top - 4] == Term.err && buffer[top - 1] > -1 {
+            if top > 0 && buffer[top - 4] == LrTerm.err && buffer[top - 1] > -1 {
                 if start == end {
                     return
                 }
@@ -245,7 +270,7 @@ public final class Stack {
         } else {
             // There may be skipped nodes that have to be moved forward
             var index = buffer.count
-            if index > 0 && (buffer[index - 4] != Term.err || buffer[index - 1] < 0) {
+            if index > 0 && (buffer[index - 4] != LrTerm.err || buffer[index - 1] < 0) {
                 var mustMove = false
                 for scan in stride(from: index, to: 0, by: -4) {
                     if buffer[scan - 2] > end {
@@ -288,13 +313,13 @@ public final class Stack {
             let parser = p.parser
             
             pos = end
-            let skipped = parser.stateFlag(nextState: nextState, flag: StateFlag.skipped)
+            let skipped = parser.stateFlag(state: nextState, flag: StateFlag.skipped)
             // Skipped or zero-length non-tree tokens don't move reducePos
             if !skipped && (end > start || type <= parser.maxNode) {
                 reducePos = end
             }
             pushState(nextState, skipped ? start : min(start, reducePos))
-            shiftContext(term: type, start: start)
+            shiftContext(type, start)
             if type <= parser.maxNode {
                 buffer.append(type)
                 buffer.append(start)
@@ -304,7 +329,7 @@ public final class Stack {
         } else {
             // Shift-and-stay, which means this is a skipped token
             pos = end
-            shiftContext(term: type, start)
+            shiftContext(type, start)
             if type <= parser.maxNode {
                 buffer.append(type)
                 buffer.append(start)
@@ -320,7 +345,7 @@ public final class Stack {
         if (action & Action.reduceFlag) != 0 {
             reduce(action)
         } else {
-            shift(action: action, next: nextStart, nextStart: nextEnd)
+            shift(action, type: next, start: nextStart, end: nextEnd)
         }
     }
     
@@ -334,7 +359,7 @@ public final class Stack {
         let start = pos
         reducePos = pos
         pos = start + value.length
-        pushState(next: next, start: start)
+        pushState(next, start)
         buffer.append(index)
         buffer.append(start)
         buffer.append(reducePos)
@@ -343,7 +368,7 @@ public final class Stack {
         if let curContext = curContext {
             updateContext(curContext.tracker.reuse(
                 curContext.context,
-                value: value,
+                value,
                 self,
                 p.stream.reset(pos - value.length)
             ))
@@ -359,7 +384,7 @@ public final class Stack {
         var off = parent!.buffer.count
         // Leave off top error node, if there, because that might be
         // merged with other nodes.
-        if off > 0 && parent!.buffer[off - 4] == Term.err {
+        if off > 0 && parent!.buffer[off - 4] == LrTerm.err {
             off -= 4
         }
 
@@ -401,7 +426,7 @@ public final class Stack {
         if isNode {
             storeNode(term: next, pos, pos, size: 4)
         }
-        storeNode(term: Term.err, pos, pos, size: isNode ? 8 : 4)
+        storeNode(term: LrTerm.err, pos, pos, size: isNode ? 8 : 4)
         pos = nextEnd
         reducePos = nextEnd
         score -= Recover.delete
@@ -412,10 +437,10 @@ public final class Stack {
     /// external tokenizers that want to make sure they only provide a
     /// given token when it applies.
     func canShift(_ term: Int) -> Bool {
-        var sim = SimulatedStack(start: self)
+        let sim = SimulatedStack(start: self)
         while true {
-            let action = p.parser.stateSlot(state: sim.state, slot: ParseState.defaultReduce) ??
-                        p.parser.hasAction(state: sim.state, term: term)
+            let slot = p.parser.stateSlot(state: sim.state, slot: ParseState.defaultReduce)
+            let action = slot != 0 ? slot : p.parser.hasAction(state: sim.state, terminal: term)
             
             if action == 0 {
                 return false
@@ -425,7 +450,7 @@ public final class Stack {
                 return true
             }
 
-            sim.reduce(_ action)
+            sim.reduce(action)
         }
     }
     
@@ -437,7 +462,7 @@ public final class Stack {
             return []
         }
         
-        let nextStates = p.parser.nextStates(state: state)
+        var nextStates = p.parser.nextStates(state: state)
         
         var best: [(Int, Int)] = []
         
@@ -446,7 +471,7 @@ public final class Stack {
             
             for i in stride(from: 0, to: nextStates.count - 1, by: 2) {
                 let s = nextStates[i + 1]
-                if s != state && p.parser.hasAction(state: state, term: next) {
+                if s != state && p.parser.hasAction(state: state, terminal: next) != 0 {
                     best.append((nextStates[i], s))
                 }
             }
@@ -460,7 +485,7 @@ public final class Stack {
                 }
             }
             
-            nextStates = best.map { ($0, $1) }
+            nextStates = best.flatMap { [$0.0, $0.1] }
         }
         
         var result: [Stack] = []
@@ -473,8 +498,8 @@ public final class Stack {
 
             let stack = split()
             stack.pushState(s, pos)
-            stack.storeNode(term: Term.err, pos, pos, 4, mustSink: true)
-            stack.shiftContext(term: nextStates[i], pos: pos)
+            stack.storeNode(term: LrTerm.err, pos, pos, size: 4, mustSink: true)
+            stack.shiftContext(nextStates[i], pos)
             stack.reducePos = pos
             stack.score -= Recover.insert
             result.append(stack)
@@ -492,30 +517,30 @@ public final class Stack {
     /// @internal
     func forceReduce() -> Bool {
         let parser = p.parser
-        let reduce = parser.stateSlot(state: state, slot: ParseState.forcedReduce)
+        var reduceAction = parser.stateSlot(state: state, slot: ParseState.forcedReduce)
         
-        if (reduce & Action.reduceFlag) == 0 {
+        if (reduceAction & Action.reduceFlag) == 0 {
             return false
         }
         
-        if !parser.validAction(state: state, action: reduce) {
-            let depth = reduce >> Action.reduceDepthShift
-            let term = reduce & Action.valueMask
+        if !parser.validAction(state: state, action: reduceAction) {
+            let depth = reduceAction >> Action.reduceDepthShift
+            let term = reduceAction & Action.valueMask
             let target = stack.count - depth * 3
 
             if target < 0 || parser.getGoto(state: stack[target], term: term, loose: false) < 0 {
                 guard let backup = findForcedReduction() else {
                     return false
                 }
-                reduce = backup
+                reduceAction = backup
             }
 
-            storeNode(term: Term.err, pos, pos, 4, mustSink: true)
+            storeNode(term: LrTerm.err, pos, pos, size: 4, mustSink: true)
             score -= Recover.reduce
         }
 
         reducePos = pos
-        reduce(_ reduce)
+        reduce(reduceAction)
         return true
     }
     
@@ -560,7 +585,7 @@ public final class Stack {
     func forceAll() -> Stack {
         while !p.parser.stateFlag(state: state, flag: StateFlag.accepting) {
             if !forceReduce() {
-                storeNode(term: Term.err, pos, pos, 4, mustSink: true)
+                storeNode(term: LrTerm.err, pos, pos, size: 4, mustSink: true)
                 break
             }
         }
@@ -583,7 +608,7 @@ public final class Stack {
     /// when this.stack.length == 3 (state is directly below the top
     /// state). @internal
     func restart() {
-        storeNode(term: Term.err, pos, pos, 4, mustSink: true)
+        storeNode(term: LrTerm.err, pos, pos, size: 4, mustSink: true)
         state = stack[0]
         stack.removeAll()
     }
@@ -761,6 +786,7 @@ public class StackBufferCursor: BufferCursor {
         if index == 0 {
             maybeNext()
         }
+    }
 
     static func create(_ stack: Stack, _ pos: Int? = nil) -> StackBufferCursor {
         let pos = pos ?? stack.bufferBase + stack.buffer.count
