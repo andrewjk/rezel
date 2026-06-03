@@ -8,7 +8,7 @@
 import Foundation
 
 /// Verbose logging flag
-public let verbose: String = ProcessInfo.processInfo.environment["LOG"] ?? ""
+public let verbose: String = ProcessInfo.processInfo.environment["LOG"] ?? "parse"
 
 /// Timing flag for performance measurement
 public let timing: Bool = verbose.contains("time")

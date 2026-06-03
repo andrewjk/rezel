@@ -93,7 +93,7 @@ public final class Stack {
     // additional buffer content, never to a stack with an equal
     // `bufferBase`.
     /// @internal
-    weak var parent: Stack?
+    var parent: Stack?
     
     /// @internal
     init(
@@ -124,8 +124,10 @@ public final class Stack {
     
     /// @internal
     func toString() -> String {
-        let states = stack.enumerated().compactMap { (index, i) in i % 3 == 0 ? String(i) : nil }
-        return "[\(states.joined(separator: ""))]\(pos)\(score != 0 ? "!\(score)" : "")"
+        let states = stack.enumerated()
+            .filter { $0.offset % 3 == 0 }
+            .map { String($0.element) } + [String(state)]
+        return "[\(states.joined(separator: ","))]@\(pos)\(score != 0 ? "!\(score)" : "")"
     }
     
     // Start an empty stack
@@ -220,19 +222,18 @@ public final class Stack {
         }
         
         let bufferBaseValue = base > 0 ? stack[base - 1] : 0
-        let count = bufferBaseValue + buffer.count - bufferBaseValue
+        let count = bufferBase + buffer.count - bufferBaseValue
         
-        // Store normal terms or `R -> R R` repeat reductions
         if type < parser.minRepeatTerm || (action & Action.repeatFlag) != 0 {
             let pos = parser.stateFlag(state: state, flag: StateFlag.skipped) ? pos : reducePos
             storeNode(term: type, start, pos, size: count + 4, mustSink: true)
         }
         
         if (action & Action.stayFlag) != 0 {
-            state = stack[base]
+            state = base < stack.count ? stack[base] : -1
         } else {
-            let baseStateID = stack[base - 3]
-            state = parser.getGoto(state: baseStateID, term: type, loose: true)
+            let baseStateID = base >= 3 ? stack[base - 3] : -1
+            state = baseStateID >= 0 ? parser.getGoto(state: baseStateID, term: type, loose: true) : -1
         }
         
         while stack.count > base {
@@ -357,8 +358,9 @@ public final class Stack {
             p.reused.append(value)
         }
         let start = pos
-        reducePos = pos
-        pos = start + value.length
+        let newPos = start + value.length
+        reducePos = newPos
+        pos = newPos
         pushState(next, start)
         buffer.append(index)
         buffer.append(start)
@@ -790,7 +792,7 @@ public class StackBufferCursor: BufferCursor {
 
     static func create(_ stack: Stack, _ pos: Int? = nil) -> StackBufferCursor {
         let pos = pos ?? stack.bufferBase + stack.buffer.count
-        return StackBufferCursor(stack: stack, pos: pos - stack.bufferBase, index: 0)
+        return StackBufferCursor(stack: stack, pos: pos, index: pos - stack.bufferBase)
     }
 
     private func maybeNext() {

@@ -5,13 +5,16 @@ private class StringInputAdapter: Input {
     init(_ string: String) { self.string = string }
     var length: Int { string.count }
     func chunk(from: Int) -> String {
-        let idx = String.Index(utf16Offset: from, in: string)
+        let clamped = min(max(from, 0), string.utf16.count)
+        let idx = String.Index(utf16Offset: clamped, in: string)
         return String(string[idx...])
     }
     var lineChunks: Bool { false }
     func read(from: Int, to: Int) -> String {
-        let start = String.Index(utf16Offset: from, in: string)
-        let end = String.Index(utf16Offset: to, in: string)
+        let clampedFrom = min(max(from, 0), string.utf16.count)
+        let clampedTo = min(max(to, clampedFrom), string.utf16.count)
+        let start = String.Index(utf16Offset: clampedFrom, in: string)
+        let end = String.Index(utf16Offset: clampedTo, in: string)
         return String(string[start..<end])
     }
 }
@@ -336,7 +339,7 @@ public func fileTests(
     var tests: [FileTest] = []
     var lastIndex = file.startIndex
 
-    let pattern = #"^\s*#[ \t]*(.*)(?:\r\n|\r|\n)([\s\S]*?)==+>([\s\S]*?)(?:$|(?:\r\n|\r|\n)+(?=#))"#
+    let pattern = #"\s*#[ \t]*(.*)(?:\r\n|\r|\n)([\s\S]*?)==+>([\s\S]*?)(?:$|(?:\r\n|\r|\n)+(?=#))"#
     let regex = try! NSRegularExpression(pattern: pattern)
 
     var searchStart = file.startIndex
@@ -422,6 +425,9 @@ public func fileTests(
 
         lastIndex = fullRange.upperBound
         searchStart = fullRange.upperBound
+        if searchStart >= file.endIndex || file[searchStart...].allSatisfy({ $0.isWhitespace }) {
+            break
+        }
     }
 
     return tests

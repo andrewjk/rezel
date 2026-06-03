@@ -7,12 +7,13 @@ struct CasesTests {
 
     static let casesDir: URL = {
         let this = URL(fileURLWithPath: #filePath)
-        let pkg = this.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let pkg = this.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         return pkg.appendingPathComponent("web/test/cases").standardized
     }()
 
     static let caseFiles: [(name: String, content: String)] = {
         let fm = FileManager.default
+        print("DIR: \(casesDir)")
         guard let files = try? fm.contentsOfDirectory(at: casesDir, includingPropertiesForKeys: nil) else { return [] }
         return files
             .filter { $0.pathExtension == "txt" }
@@ -72,7 +73,7 @@ struct CasesTests {
             }
         }
         let grammar = String(content[content.startIndex..<hashPos.lowerBound])
-        let testContent = String(content[hashPos.upperBound...])
+        let testContent = String(content[hashPos.lowerBound...])
 
         let errMatch = grammar.range(of: "//! ")
         let noCases = testContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

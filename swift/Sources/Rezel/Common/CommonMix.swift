@@ -413,12 +413,13 @@ internal final class MixedParse: PartialParse {
                     if let currentOverlay = overlay {
                         currentOverlay.depth -= 1
                         if currentOverlay.depth == 0 {
-                            let ranges = punchRanges(outer: self.ranges, ranges: currentOverlay.ranges)
+                            let sortedRanges = currentOverlay.ranges.sorted { $0.from < $1.from }
+                            let ranges = punchRanges(outer: self.ranges, ranges: sortedRanges)
                             if !ranges.isEmpty {
                                 checkRanges(ranges: ranges)
                                 let fragmentsToUse = enterFragments(mounts: currentOverlay.mounts, ranges: ranges)
                                 let parse = currentOverlay.parser.startParse(input: input, fragments: fragmentsToUse, ranges: ranges)
-                                let mappedRanges = currentOverlay.ranges.map { r in
+                                let mappedRanges = sortedRanges.map { r in
                                     Range(from: r.from - currentOverlay.start, to: r.to - currentOverlay.start)
                                 }
                                 
@@ -519,7 +520,7 @@ internal func materialize(cursor: TreeCursor) {
         let child: TreeOrBuffer
         if stackPos > 0 {
             let childTree = split(
-                startI: Int(b[targetI + 4]),
+                startI: targetI + 4,
                 endI: Int(b[targetI + 3]),
                 type: buf.set.types[Int(b[targetI])],
                 innerOffset: from,
@@ -539,12 +540,11 @@ internal func materialize(cursor: TreeCursor) {
         return Tree(type: type, children: children, positions: positions, length: length)
     }
     
-    var newChildren = base.children
-    newChildren[i] = .tree(split(startI: 0, endI: b.count, type: NodeType.none, innerOffset: 0, length: buf.length, stackPos: stack.count - 1))
+    base.children[i] = .tree(split(startI: 0, endI: b.count, type: NodeType.none, innerOffset: 0, length: buf.length, stackPos: stack.count - 1))
     
     for index in newStack {
-        if case .tree(let tree) = newChildren[index] {
-            let pos = base.positions[index]
+        if case .tree(let tree) = cursor.tree!.children[index] {
+            let pos = cursor.tree!.positions[index]
             _ = cursor.yield(treeNode: TreeNode(tree: tree, from: pos + cursor.from, index: index, parent: cursor._tree), bufferNode: nil)
         }
     }

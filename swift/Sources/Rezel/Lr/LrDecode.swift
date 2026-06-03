@@ -20,17 +20,18 @@ public func decodeArray(_ input: ArrayOrString) -> [Int] {
         return array
     case .string(let strInput):
         var result: [Int] = []
+        let chars = Array(strInput.utf16)
+        let count = chars.count
         var pos = 0
         var outputIndex = 0
+        var first = true
         
-        while pos < strInput.count {
+        while pos < count {
             var value = 0
             
             while true {
-                guard pos < strInput.count else { fatalError("Unexpected end of input") }
-                
-                guard pos < strInput.utf16.count else { fatalError("Unexpected end of input") }
-                let nextChar = strInput.utf16[strInput.index(strInput.startIndex, offsetBy: pos)]
+                guard pos < count else { fatalError("Unexpected end of input") }
+                let nextChar = chars[pos]
                 var stop = false
                 
                 pos += 1
@@ -62,13 +63,17 @@ public func decodeArray(_ input: ArrayOrString) -> [Int] {
                 value *= Encode.base
             }
             
-            if outputIndex < result.count {
-                result[outputIndex] = value
+            if first {
+                result = [Int](repeating: 0, count: value)
+                first = false
             } else {
-                result.append(value)
+                if outputIndex < result.count {
+                    result[outputIndex] = value
+                } else {
+                    result.append(value)
+                }
+                outputIndex += 1
             }
-            
-            outputIndex += 1
         }
         
         return result

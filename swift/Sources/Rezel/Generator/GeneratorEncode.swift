@@ -57,10 +57,9 @@ public func encode(_ value: Int, max: Int = 0xffff) -> String {
 
 /// Encode an array of numbers as a string
 public func encodeArray(_ values: [Int], max: Int = 0xffff) -> String {
-    var result = "\"" + encode(values.count, max: 0xffffffff)
+    var result = encode(values.count, max: 0xffffffff)
     for i in 0..<values.count {
         result += encode(values[i], max: max)
     }
-    result += "\""
     return result
 }

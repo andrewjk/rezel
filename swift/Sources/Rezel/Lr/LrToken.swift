@@ -124,18 +124,27 @@ public class InputStream {
         var pos: Int
         var result: Int
         
-        if idx >= 0 && idx < chunk.count {
+        if idx >= 0 && idx < chunk.utf16.count {
             pos = self.pos + offset
             guard !chunk.isEmpty else { return -1 }
-            result = Int(chunk.utf16[chunk.index(chunk.startIndex, offsetBy: idx)])
+            let strIdx = chunk.index(chunk.startIndex, offsetBy: idx)
+            guard strIdx < chunk.endIndex else { return -1 }
+            result = Int(chunk.utf16[strIdx])
         } else {
             guard let resolved = resolveOffset(offset, assoc: 1) else {
                 return -1
             }
             pos = resolved
-            if pos >= chunk2Pos && pos < chunk2Pos + chunk2.count {
+            if pos >= chunk2Pos && pos < chunk2Pos + chunk2.utf16.count {
                 guard !chunk2.isEmpty else { return -1 }
-                result = Int(chunk2.utf16[chunk2.index(chunk2.startIndex, offsetBy: pos - chunk2Pos)])
+                let offset = pos - chunk2Pos
+                if offset >= 0 && offset < chunk2.utf16.count {
+                    let strIdx = chunk2.index(chunk2.startIndex, offsetBy: offset)
+                    guard strIdx < chunk2.endIndex else { return -1 }
+                    result = Int(chunk2.utf16[strIdx])
+                } else {
+                    return -1
+                }
             } else {
                 var i = rangeIndex
                 var currentRange = range
@@ -147,7 +156,7 @@ public class InputStream {
                 chunk2 = input.chunk(from: pos)
                 chunk2Pos = pos
                 
-                if pos + chunk2.count > currentRange.to {
+                if pos + chunk2.utf16.count > currentRange.to {
                     let endOffset = currentRange.to - pos
                     let endIndex = chunk2.index(chunk2.startIndex, offsetBy: endOffset)
                     chunk2 = String(chunk2[..<endIndex])
@@ -184,7 +193,7 @@ public class InputStream {
     }
     
     private func getChunk() {
-        if pos >= chunk2Pos && pos < chunk2Pos + chunk2.count {
+        if pos >= chunk2Pos && pos < chunk2Pos + chunk2.utf16.count {
             let tempChunk = chunk
             let tempChunkPos = chunkPos
             chunk = chunk2
@@ -196,10 +205,11 @@ public class InputStream {
             chunk2 = chunk
             chunk2Pos = chunkPos
             let nextChunk = input.chunk(from: pos)
-            let end = pos + nextChunk.count
+            let end = pos + nextChunk.utf16.count
             
             if end > range.to {
-                let endIndex = nextChunk.index(nextChunk.startIndex, offsetBy: range.to - pos)
+                let endOffset = range.to - pos
+                let endIndex = nextChunk.index(nextChunk.startIndex, offsetBy: endOffset)
                 chunk = String(nextChunk[..<endIndex])
             } else {
                 chunk = nextChunk
@@ -212,9 +222,9 @@ public class InputStream {
     
     @discardableResult
     private func readNext() -> Int {
-        if chunkOff >= chunk.count {
+        if chunkOff >= chunk.utf16.count {
             getChunk()
-            if chunkOff == chunk.count {
+            if chunkOff >= chunk.utf16.count {
                 next = -1
                 return next
             }
@@ -235,7 +245,8 @@ public class InputStream {
                 return setDone()
             }
             remaining -= range.to - pos
-            range = ranges[rangeIndex + 1]
+            rangeIndex += 1
+            range = ranges[rangeIndex]
             pos = range.from
         }
         
@@ -301,11 +312,11 @@ public class InputStream {
     
     /// @internal
     func read(_ from: Int, _ to: Int) -> String {
-        if from >= chunkPos && to <= chunkPos + chunk.count {
+        if from >= chunkPos && to <= chunkPos + chunk.utf16.count {
             return String(chunk[chunk.index(chunk.startIndex, offsetBy: from - chunkPos)..<chunk.index(chunk.startIndex, offsetBy: to - chunkPos)])
         }
         
-        if from >= chunk2Pos && to <= chunk2Pos + chunk2.count {
+        if from >= chunk2Pos && to <= chunk2Pos + chunk2.utf16.count {
             return String(chunk2[chunk2.index(chunk2.startIndex, offsetBy: from - chunk2Pos)..<chunk2.index(chunk2.startIndex, offsetBy: to - chunk2Pos)])
         }
         
@@ -367,11 +378,13 @@ public class LocalTokenGroup: Tokenizer {
     let data: [Int]
     let precTable: Int
     let elseToken: Int?
+    let localGroupID: Int
     
-    init(data: ArrayOrString, precTable: Int, elseToken: Int? = nil) {
+    init(data: ArrayOrString, precTable: Int, elseToken: Int? = nil, localGroupID: Int = 0) {
         self.precTable = precTable
         self.elseToken = elseToken
         self.data = decodeArray(data)
+        self.localGroupID = localGroupID
     }
     
     public func token(_ input: InputStream, _ stack: Stack) {
@@ -517,7 +530,7 @@ internal func readToken(
                         tableOffset: precOffset
                     )) {
                     input.acceptToken(term)
-                    break scan
+                    break
                 }
             }
         }
@@ -574,7 +587,8 @@ internal func overrides(
 ) -> Bool {
     let iPrev = findOffset(tableData, start: tableOffset, term: prev)
     if iPrev < 0 {
-        return findOffset(tableData, start: tableOffset, term: token) < 0
+        return true
     }
-    return true
+    let iToken = findOffset(tableData, start: tableOffset, term: token)
+    return iToken < iPrev
 }

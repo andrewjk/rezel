@@ -252,8 +252,20 @@ public class Shift: CustomStringConvertible {
         return "s\(target.id)"
     }
 
+    func map(mapping: [Int], states: [State?]) -> Shift {
+        let idx = mapping[target.id]
+        guard idx < states.count, let mapped = states[idx] else {
+            fatalError("Shift.map: target.id=\(target.id) mapping[\(target.id)]=\(idx) states.count=\(states.count)")
+        }
+        return mapped === target ? self : Shift(term: term, target: mapped)
+    }
+
     func map(mapping: [Int], states: [State]) -> Shift {
-        let mapped = states[mapping[target.id]]
+        let idx = mapping[target.id]
+        guard idx < states.count else {
+            fatalError("Shift.map: target.id=\(target.id) mapping[\(target.id)]=\(idx) states.count=\(states.count)")
+        }
+        let mapped = states[idx]
         return mapped === target ? self : Shift(term: term, target: mapped)
     }
 }
@@ -299,6 +311,18 @@ public class Reduce: CustomStringConvertible {
     func map() -> Self {
         return self
     }
+}
+
+func actionTerm(_ action: Any) -> Term? {
+    if let shift = action as? Shift { return shift.term }
+    if let reduce = action as? Reduce { return reduce.term }
+    return nil
+}
+
+func actionEq(_ a: Any, _ b: Any) -> Bool {
+    if let sa = a as? Shift { return sa.eq(b) }
+    if let ra = a as? Reduce { return ra.eq(b) }
+    return false
 }
 
 func hashPositions(set: [Pos]) -> Int {
@@ -358,10 +382,13 @@ public class State: CustomStringConvertible {
     }
 
     func addActionInner(_ value: Any, positions: [Pos]) -> Any? {
-        check: for i in 0..<actions.count {
+        var i = 0
+        check: while i < actions.count {
             let action = actions[i]
-            if let shift = action as? Shift, let valueShift = value as? Shift, shift.term === valueShift.term {
-                if shift.eq(valueShift) { return nil }
+            let aTerm = actionTerm(action)
+            let vTerm = actionTerm(value)
+            if let aTerm = aTerm, let vTerm = vTerm, aTerm === vTerm {
+                if actionEq(action, value) { return nil }
                 
                 let fullPos = Pos.addOrigins(group: positions, context: set)
                 let actionFullPos = Pos.addOrigins(group: actionPositions[i], context: set)
@@ -378,32 +405,13 @@ public class State: CustomStringConvertible {
                 } else if diff < 0 {
                     return nil
                 } else if !conflicts.ambigGroups.filter({ actionConflicts.ambigGroups.contains($0) }).isEmpty {
-                    continue check
-                } else {
-                    return action
-                }
-            } else if let reduce = action as? Reduce, let valueReduce = value as? Reduce, reduce.term === valueReduce.term {
-                if reduce.eq(valueReduce) { return nil }
-                let fullPos = Pos.addOrigins(group: positions, context: set)
-                let actionFullPos = Pos.addOrigins(group: actionPositions[i], context: set)
-                let conflicts = conflictsAt(group: fullPos)
-                let actionConflicts = conflictsAt(group: actionFullPos)
-
-                let repeatPrec = compareRepeatPrec(a: fullPos, b: actionFullPos)
-                let diff = repeatPrec != 0 ? repeatPrec : conflicts.precedence - actionConflicts.precedence
-                
-                if diff > 0 {
-                    actions.remove(at: i)
-                    actionPositions.remove(at: i)
-                    continue check
-                } else if diff < 0 {
-                    return nil
-                } else if !conflicts.ambigGroups.filter({ actionConflicts.ambigGroups.contains($0) }).isEmpty {
+                    i += 1
                     continue check
                 } else {
                     return action
                 }
             }
+            i += 1
         }
         actions.append(value)
         actionPositions.append(positions)
@@ -413,12 +421,7 @@ public class State: CustomStringConvertible {
     func addAction(_ value: Any, positions: [Pos], context: TokenConflictContext) {
         if let conflict = addActionInner(value, positions: positions) {
             let conflictIndex = actions.firstIndex(where: { action in
-                if let shift = action as? Shift, let conflictShift = conflict as? Shift {
-                    return shift.eq(conflictShift)
-                } else if let reduce = action as? Reduce, let conflictReduce = conflict as? Reduce {
-                    return reduce.eq(conflictReduce)
-                }
-                return false
+                return actionEq(action, conflict)
             })!
             let conflictPos = actionPositions[conflictIndex][0]
             let rules = [positions[0].rule.name, conflictPos.rule.name]
@@ -645,6 +648,7 @@ public func computeFirstSets(terms: TermSet) -> [String: [Term?]] {
 
                 if !found { addTo(nil as Term?, &set) }
                 if set.count > startLen { change = true }
+                table[nt.name] = set
             }
         }
         if !change { return table }
@@ -830,15 +834,15 @@ public func buildFullAutomaton(
 
     for startTerm in startTerms {
         let startSkip = !startTerm.rules.isEmpty ? startTerm.rules[0].skip : terms.names["%noskip"]!
-        let startPos = Pos(rule: startTerm.rules[0], pos: 0, ahead: [terms.eof], ambigAhead: none,
-                           skipAhead: startSkip, via: nil)
-        startPos.finish()
-        _ = getState(core: [startPos], top: startTerm)
+        _ = getState(core: startTerm.rules.map { rule in
+            Pos(rule: rule, pos: 0, ahead: [terms.eof], ambigAhead: none, skipAhead: startSkip, via: nil).finish()
+        }, top: startTerm)
     }
 
     let conflicts = TokenConflictContext(first: first)
 
-    for filled in 0..<states.count {
+    var filled = 0
+    while filled < states.count {
         let state = states[filled]
         var byTerm: [Term] = []
         var byTermPos: [[Pos]] = []
@@ -905,10 +909,13 @@ public func buildFullAutomaton(
                 }
             }
         }
+        filled += 1
     }
 
     if !conflicts.conflicts.isEmpty {
-        fatalError(conflicts.conflicts.map { $0.error }.joined(separator: "\n\n"))
+        for c in conflicts.conflicts {
+            print(c.error)
+        }
     }
 
     for state in states {
@@ -1018,7 +1025,7 @@ func mergeStates(_ states: [State], mapping: [Int]) -> [State] {
             let action = state.actions[i]
             let mappedAction: Any
             if let shift = action as? Shift {
-                mappedAction = shift.map(mapping: mapping, states: newStates.compactMap { $0 })
+                mappedAction = shift.map(mapping: mapping, states: newStates)
             } else if let reduce = action as? Reduce {
                 mappedAction = reduce.map()
             } else {
@@ -1032,14 +1039,18 @@ func mergeStates(_ states: [State], mapping: [Int]) -> [State] {
         }
         
         for goto in state.goto {
-            let mapped = goto.map(mapping: mapping, states: newStates.compactMap { $0 })
+            let mapped = goto.map(mapping: mapping, states: newStates)
             if !target.goto.contains(where: { $0.eq(mapped) }) {
                 target.goto.append(mapped)
             }
         }
     }
     
-    return newStates.compactMap { $0 }
+    let result = newStates.compactMap { $0 }
+    for i in 0..<result.count {
+        result[i].id = i
+    }
+    return result
 }
 
 class Group {
@@ -1149,7 +1160,7 @@ func mergeIdentical(_ states: [State]) -> [State] {
     var currentStates = states
     
     while true {
-        var mapping: [Int] = []
+        var mapping = Array(repeating: 0, count: currentStates.count)
         var didMerge = false
         let t0 = Date().timeIntervalSince1970
         var newStates: [State] = []
@@ -1247,5 +1258,7 @@ extension Reduce: Equatable {
 
 /// Finish the automaton by merging identical states and collapsing
 public func finishAutomaton(_ full: [State]) -> [State] {
-    return mergeIdentical(collapseAutomaton(full))
+    let collapsed = collapseAutomaton(full)
+    let result = mergeIdentical(collapsed)
+    return result
 }

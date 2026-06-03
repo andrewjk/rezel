@@ -14,7 +14,7 @@ public class Parts {
         if other.terms.isEmpty && (other.conflicts == nil || other.conflicts!.isEmpty) { return self }
         var newConflicts: [Conflicts]? = nil
         if self.conflicts != nil || other.conflicts != nil {
-            let selfC = self.conflicts ?? []
+            let selfC = self.ensureConflicts()
             let otherC = other.ensureConflicts()
             newConflicts = selfC
             if !newConflicts!.isEmpty {
@@ -169,11 +169,12 @@ func findSkipStates(_ table: [State], _ startRules: [Term]) -> (Int) -> Bool {
         }
     }
     for state in table {
-        if let sr = state.startRule, startRules.contains(where: { $0 === sr }) {
+        if let sr = state.startRule, startRules.contains(where: { $0.id == sr.id }) {
             add(state)
         }
     }
-    for i in 0..<work.count {
+    var i = 0
+    while i < work.count {
         for a in work[i].actions {
             if let shift = a as? Shift {
                 add(shift.target)
@@ -182,6 +183,7 @@ func findSkipStates(_ table: [State], _ startRules: [Term]) -> (Int) -> Bool {
         for g in work[i].goto {
             add(g.target)
         }
+        i += 1
     }
     return { id in nonSkip[id] == nil }
 }
@@ -484,21 +486,23 @@ func isValidDynamicPrecedence(_ s: String) -> Bool {
 }
 
 func rangeEdges(from: TokenBuildState, to: TokenBuildState, low: Int, hi: Int) {
+    var low = low
     let astral = 0x10000, gapStart = 0xd800, gapEnd = 0xe000, maxChar = 0x10ffff
     let lowSurrB = 0xdc00, highSurrB = 0xdfff
     if low < astral {
         if low < gapStart { from.edge(low, min(hi, gapStart), to) }
         if hi > gapEnd { from.edge(max(low, gapEnd), min(hi, maxChar + 1), to) }
+        low = astral
     }
     if hi <= astral { return }
     let lowStr = String(UnicodeScalar(low)!)
     let hiStr = String(UnicodeScalar(hi - 1)!)
-    let lowA = Int(lowStr.utf16[lowStr.startIndex])
+    let lowA = Int(lowStr.utf16[lowStr.utf16.startIndex])
     let lowB: Int
-    if lowStr.utf16.count > 1 { lowB = Int(lowStr.utf16[lowStr.index(after: lowStr.startIndex)]) } else { lowB = 0 }
-    let hiA = Int(hiStr.utf16[hiStr.startIndex])
+    if lowStr.utf16.count > 1 { lowB = Int(lowStr.utf16[lowStr.utf16.index(after: lowStr.utf16.startIndex)]) } else { lowB = 0 }
+    let hiA = Int(hiStr.utf16[hiStr.utf16.startIndex])
     let hiB: Int
-    if hiStr.utf16.count > 1 { hiB = Int(hiStr.utf16[hiStr.index(after: hiStr.startIndex)]) } else { hiB = 0 }
+    if hiStr.utf16.count > 1 { hiB = Int(hiStr.utf16[hiStr.utf16.index(after: hiStr.utf16.startIndex)]) } else { hiB = 0 }
     if lowA == hiA {
         let hop = TokenBuildState()
         from.edge(lowA, lowA + 1, hop)
@@ -535,7 +539,7 @@ class FinishStateContext {
     let states: [State]
     let builder: Builder
     
-    init(tokenizers: [Any], data: DataBuilder, stateArray: inout [UInt32], skipData: [Int], skipInfo: [SkipInfo], states: [State], builder: Builder) {
+    init(tokenizers: [Any], data: DataBuilder, stateArray: [UInt32], skipData: [Int], skipInfo: [SkipInfo], states: [State], builder: Builder) {
         self.tokenizers = tokenizers
         self.data = data
         self.stateArray = stateArray
@@ -550,7 +554,7 @@ class FinishStateContext {
         var found: SharedActions?
         for shared in sharedActions {
             if (found == nil || shared.actions.count > found!.actions.count) &&
-                shared.actions.allSatisfy({ a in state.actions.contains(where: { b in (a as! Shift).eq(b) || (a as! Reduce).eq(b) }) }) {
+                shared.actions.allSatisfy({ a in state.actions.contains(where: { b in actionEq(a, b) }) }) {
                 found = shared
             }
         }
@@ -563,7 +567,7 @@ class FinishStateContext {
             var scratch: [Any] = []
             for a in state.actions {
                 for b in other.actions {
-                    if (a as! Shift).eq(b) || (a as! Reduce).eq(b) {
+                    if actionEq(a, b) {
                         scratch.append(a)
                         fill += 1
                     }
@@ -585,7 +589,7 @@ class FinishStateContext {
         }
         var data: [Int] = []
         for action in actions {
-            if let s = shared, s.actions.contains(where: { ($0 as! Shift).eq(action) || ($0 as! Reduce).eq(action) }) { continue }
+            if let s = shared, s.actions.contains(where: { actionEq($0, action) }) { continue }
             if let shift = action as? Shift {
                 data.append(shift.term.id)
                 data.append(shift.target.id)
@@ -1306,7 +1310,7 @@ class Builder {
         
         let noSkip = newName("%noskip", nodeName: true)
         currentSkip.append(noSkip)
-        defineRule(noSkip, choices: [Parts.none])
+        defineRule(noSkip, choices: [])
         let mainSkip = ast.mainSkip != nil ? newName("%mainskip", nodeName: true) : noSkip
         var scopedSkip: [Term] = []
         var topRules: [(rule: RuleDeclaration, skip: Term)] = []
@@ -1381,8 +1385,8 @@ class Builder {
     }
     
     func prepareParser() -> (states: [UInt32], stateData: [UInt16], goto: [UInt16], nodeNames: String, nodeProps: [[String: Any]]?, skippedTypes: [Int], maxTerm: Int, repeatNodeCount: Int, tokenizers: [Any], tokenData: String, topRules: [String: [Int]], dialects: [String: Int], dynamicPrecedences: [Int: Int]?, specialized: [Any], tokenPrec: Int, termNames: [Int: String]) {
-        let simplifiedRules = simplifyRules(rules, Array(skipRules) + terms.tops)
-        let (nodeTypes, termNames, minRepeatTerm, maxTerm) = terms.finish(rules: simplifiedRules)
+         let simplifiedRules = simplifyRules(rules, Array(skipRules) + terms.tops)
+         let (nodeTypes, termNames, minRepeatTerm, maxTerm) = terms.finish(rules: simplifiedRules)
         for (prop, t) in namedTerms { termTable[prop] = t.id }
         var startTerms = Array(terms.tops)
         let first = computeFirstSets(terms: terms)
@@ -1429,7 +1433,7 @@ class Builder {
             var actions: [Int] = []
             for term in info.skip { actions.append(term.id); actions.append(0); actions.append(Action.stayFlag >> 16) }
             if let rule = info.rule {
-                if let state = table.first(where: { $0.startRule === rule }) {
+                if let state = table.first(where: { $0.startRule?.id == rule.id }) {
                     for action in state.actions {
                         if let s = action as? Shift { actions.append(s.term.id); actions.append(state.id); actions.append(Action.gotoFlag >> 16) }
                     }
@@ -1440,10 +1444,11 @@ class Builder {
         }
         var states = Array(repeating: UInt32(0), count: table.count * ParseState.size)
         let forceReductions = computeForceReductions(table, skipInfo)
-        let finishCx = FinishStateContext(tokenizers: tokenizers, data: data, stateArray: &states, skipData: skipData, skipInfo: skipInfo, states: table, builder: self)
+        let finishCx = FinishStateContext(tokenizers: tokenizers, data: data, stateArray: states, skipData: skipData, skipInfo: skipInfo, states: table, builder: self)
         for s in table {
             finishCx.finish(s, isSkip: skipStateFn(s.id), forcedReduce: forceReductions[s.id])
         }
+        states = finishCx.stateArray
         var dialectData: [String: Int] = [:]
         for i in 0..<dialects.count {
             dialectData[dialects[i]] = data.storeArray((tokens.byDialect[i] ?? []).map(\.id) + [Seq.end])
@@ -1455,17 +1460,19 @@ class Builder {
         }
         var topRuleData: [String: [Int]] = [:]
         for term in terms.tops {
-            if let name = term.nodeName, let state = table.first(where: { $0.startRule === term }) {
+            if let name = term.nodeName, let state = table.first(where: { $0.startRule?.id == term.id }) {
                 topRuleData[name] = [state.id, term.id]
             }
         }
         let precTable = data.storeArray(tokenPrec + [Seq.end])
         let (nodeProps, skippedTypes) = gatherNodeProps(nodeTypes: nodeTypes)
         
+        let gotoTable = computeGotoTable(table)
+        
         return (
             states: states,
             stateData: data.finish(),
-            goto: computeGotoTable(table),
+            goto: gotoTable,
             nodeNames: nodeTypes.filter { $0.id < minRepeatTerm }.compactMap(\.nodeName).joined(separator: " "),
             nodeProps: nodeProps,
             skippedTypes: skippedTypes,
@@ -1800,7 +1807,7 @@ class Builder {
     
     func normalizeRepeat(_ expr: RepeatExpression) -> Parts {
         for b in built { if b.matchesRepeat(expr) { return p(b.term) } }
-        let nameStr = expr.expr.prec < expr.prec ? "(\(expr.expr))+": "\(expr.expr)+"
+        let nameStr = expr.expr.prec < expr.prec ? "\(expr.expr.toString())+": "\(expr.expr.toString())+"
         let term = terms.makeRepeat(terms.uniqueName(nameStr))
         built.append(BuiltRule(id: "+", args: [expr.expr], term: term))
         defineRule(term, choices: normalizeExpr(expr.expr) + [p(term, term)])

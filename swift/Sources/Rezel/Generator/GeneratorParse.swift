@@ -116,9 +116,8 @@ public class GrammarInput {
                 let content = String(string[string.index(string.startIndex, offsetBy: start + 2)..<string.index(string.startIndex, offsetBy: end - 1)])
                 return set(type: "set", value: content, start: start, end: end)
             }
-        }
-        
-        if "[[\\]()!~+*?{}<>.,|:$=]".contains(nextChar) {
+            return set(type: String(nextChar), value: nil, start: start, end: start + 1)
+        } else if "[[\\]()~+*?{}<>.,|:$=]".contains(nextChar) {
             return set(type: String(nextChar), value: nil, start: start, end: start + 1)
         } else {
             let wordPattern = #"[\w_-]+"#

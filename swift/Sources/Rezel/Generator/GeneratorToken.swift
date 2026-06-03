@@ -91,9 +91,9 @@ fileprivate func minimize(_ states: [TokenState], start: TokenState) -> TokenSta
             
             var parts: [[TokenState]] = []
             groupsLoop: for state in group {
-                for var p in parts {
-                    if isEquivalent(a: state, b: p[0], partition: partition) {
-                        p.append(state)
+                for idx in parts.indices {
+                    if isEquivalent(a: state, b: parts[idx][0], partition: partition) {
+                        parts[idx].append(state)
                         continue groupsLoop
                     }
                 }
@@ -404,7 +404,7 @@ public class TokenState {
                 data.append(groupMasks[term.id] ?? 0xffff)
             }
             
-            for edge in state.edges {
+            for edge in state.edges.sorted(by: { $0.from < $1.from }) {
                 data.append(edge.from)
                 data.append(edge.to)
                 data.append(-edge.target.id - 1)
@@ -422,7 +422,7 @@ public class TokenState {
             fatalError("Tokenizer tables too big to represent with 16-bit offsets.")
         }
         
-        return data.map { UInt16($0) }
+        return data.map { UInt16(truncatingIfNeeded: $0) }
     }
     
     func stateMask(groupMasks: [Int: Int]) -> Int {
@@ -518,23 +518,25 @@ fileprivate func mergeEdges(edges: [Edge]) -> [MergedEdge] {
     
     separate.sort()
     
-    for i in 1..<separate.count {
-        let from = separate[i - 1]
-        let to = separate[i]
-        var found: [TokenState] = []
-        
-        for edge in edges {
-            if edge.to > from && edge.from < to {
-                for target in edge.target.closure() {
-                    if !found.contains(where: { $0 === target }) {
-                        found.append(target)
+    if separate.count > 1 {
+        for i in 1..<separate.count {
+            let from = separate[i - 1]
+            let to = separate[i]
+            var found: [TokenState] = []
+            
+            for edge in edges {
+                if edge.to > from && edge.from < to {
+                    for target in edge.target.closure() {
+                        if !found.contains(where: { $0 === target }) {
+                            found.append(target)
+                        }
                     }
                 }
             }
-        }
-        
-        if !found.isEmpty {
-            result.append(MergedEdge(from: from, to: to, targets: found))
+            
+            if !found.isEmpty {
+                result.append(MergedEdge(from: from, to: to, targets: found))
+            }
         }
     }
     

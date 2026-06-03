@@ -422,6 +422,37 @@ public final class NodeSet {
         }
         return NodeSet(types: newTypes)
     }
+
+    public func extend(_ props: [NodePropSource]) -> NodeSet {
+        var newTypes: [NodeType] = []
+        for type in types {
+            var newProps: [Int: Any]? = nil
+            for source in props {
+                if let add = source(type) {
+                    if newProps == nil {
+                        newProps = type.props
+                    }
+                    let prop = add.0
+                    let value = add.1
+                    let propId = prop.id
+                    if let nodeProp = prop as? NodeProp<Any>,
+                       let combine = nodeProp.combine,
+                       newProps![propId] != nil {
+                        newProps![propId] = combine(newProps![propId]!, value)
+                    } else {
+                        newProps![propId] = value
+                    }
+                }
+            }
+            
+            if let newProps = newProps {
+                newTypes.append(NodeType(name: type.name, props: newProps, id: type.id, flags: type.flags))
+            } else {
+                newTypes.append(type)
+            }
+        }
+        return NodeSet(types: newTypes)
+    }
 }
 
 /// Options that control iteration. Can be combined with the `|`
@@ -468,7 +499,7 @@ public final class Tree {
     public let type: NodeType
     
     /// This node's child nodes.
-    public let children: [TreeOrBuffer]
+    public var children: [TreeOrBuffer]
     
     /// The positions (offsets relative to the start of this tree) of
     /// the children.
@@ -585,7 +616,7 @@ public final class Tree {
         
         while true {
             var entered = false
-            if c.from <= to && c.to >= from && (anon || !c.type.isAnonymous) && enter(c) != false {
+            if c.from <= to && c.to >= from && ((!anon && c.type.isAnonymous) || enter(c) != false) {
                 if c.firstChild() {
                     continue
                 }
@@ -1148,18 +1179,11 @@ public final class TreeNode: BaseNode {
 
                 currentI += dir
             }
-
-            if mode.contains(.includeAnonymous) || !parent.type.isAnonymous {
-                return nil
-            }
-
-            let nextIndex = parent.index >= 0 ? parent.index + dir : (dir < 0 ? -1 : parent._parent!._tree.children.count)
-            guard let nextParent = parent._parent else {
-                return nil
-            }
-            parent = nextParent
-
-            currentI = nextIndex
+            
+            guard let outer = parent._parent else { return nil }
+            if mode.contains(.includeAnonymous) || !parent.type.isAnonymous { return nil }
+            currentI = parent.index >= 0 ? parent.index + dir : (dir < 0 ? -1 : outer._tree.children.count)
+            parent = outer
         }
     }
     
@@ -1545,7 +1569,7 @@ internal func stackIterator(tree: Tree, pos: Int, side: Int) -> NodeIterator {
                 layers = [inner]
             }
             layers!.append(parent.resolve(pos: pos, side: side))
-            scan = parent as? TreeNode
+            scan = parent.parent as? TreeNode
         } else {
             if let mount = MountedTree.get(tree: currentScan.tree),
                let overlay = mount.overlay,
@@ -1557,8 +1581,8 @@ internal func stackIterator(tree: Tree, pos: Int, side: Int) -> NodeIterator {
                 }
                 layers!.append(resolveNode(node: root, pos: pos, side: side, overlays: false))
             }
+            scan = currentScan.parent as? TreeNode
         }
-        scan = currentScan.parent as? TreeNode
     }
     
     return layers != nil ? iterStack(heads: layers!)! : NodeIterator(node: inner, next: nil)

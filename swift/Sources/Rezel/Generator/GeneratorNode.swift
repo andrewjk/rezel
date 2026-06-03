@@ -278,7 +278,7 @@ public class Identifier: Node {
 }
 
 /// Expression base class
-public class Expression: Node, Equatable {
+public class Expression: Node, Equatable, CustomStringConvertible {
     public static func == (lhs: Expression, rhs: Expression) -> Bool {
         return type(of: lhs) == type(of: rhs) && lhs.eq(rhs)
     }
@@ -294,6 +294,8 @@ public class Expression: Node, Equatable {
     public func toString() -> String {
         return ""
     }
+
+    public var description: String { return toString() }
     
     var prec: Int = 10
 }

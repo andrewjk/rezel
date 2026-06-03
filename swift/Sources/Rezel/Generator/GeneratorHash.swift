@@ -9,7 +9,7 @@ import Foundation
 
 /// Simple hash function combining two numbers
 public func hash(_ a: Int, _ b: Int) -> Int {
-    return (a << 5) + a + b
+    return (a &<< 5) &+ a &+ b
 }
 
 /// Hash a string character by character
