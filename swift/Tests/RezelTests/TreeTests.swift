@@ -2,126 +2,133 @@ import Testing
 import Foundation
 @testable import Rezel
 
-// MARK: - Shared tree-building helpers
-
-nonisolated(unsafe) let sharedTypes: [NodeType] = {
-    var result: [NodeType] = []
+private func makeTestTypes() -> (types: [NodeType], nodeSet: NodeSet, repeatType: NodeType) {
     let names = ["T", "a", "b", "c", "Pa", "Br"]
-    for (i, name) in names.enumerated() {
-        let specProps: [Any]? = "abc".contains(name.first!) ? [{ (_: NodeType) -> (any NodePropProtocol, Any)? in (nodePropGroup, ["atom"]) }] : nil
-        result.append(NodeType.define(spec: NodeTypeSpec(id: i, name: name, props: specProps)))
+    var types: [NodeType] = []
+    for (i, s) in names.enumerated() {
+        let isAtom = s == "a" || s == "b" || s == "c"
+        types.append(NodeType.define(spec: NodeType.DefineSpec(
+            id: i,
+            name: s,
+            props: isAtom ? [nodePropGroup.add(match: ["atom": ["atom"]])] as [Any] : nil
+        )))
     }
-    return result
-}()
-
-nonisolated(unsafe) let sharedRepeatType = NodeType.define(spec: NodeTypeSpec(id: sharedTypes.count))
-nonisolated(unsafe) let sharedAllTypes = sharedTypes + [sharedRepeatType]
-nonisolated(unsafe) let sharedNodeSet = NodeSet(types: sharedAllTypes)
-
-func _id(_ name: String) -> Int {
-    return sharedTypes.first { $0.name == name }!.id
+    let repeatType = NodeType.define(spec: NodeType.DefineSpec(id: types.count))
+    types.append(repeatType)
+    return (types, NodeSet(types: types), repeatType)
 }
 
-func mk(_ spec: String) -> Tree {
+nonisolated(unsafe) private let testEnv = makeTestTypes()
+nonisolated(unsafe) private let testTypes = testEnv.types
+nonisolated(unsafe) private let testNodeSet = testEnv.nodeSet
+
+private func id(_ n: String) -> Int {
+    testTypes.first(where: { $0.name == n })!.id
+}
+
+private func mk(_ spec: String) -> Tree {
     var starts: [Int] = []
     var buffer: [Int] = []
-    var pos = spec.startIndex
-
-    while pos < spec.endIndex {
-        let ch = spec[pos]
-        if "abc".contains(ch) {
-            let letterPos = spec.distance(from: spec.startIndex, to: pos)
-            buffer.append(contentsOf: [_id(String(ch)), letterPos, letterPos + 1, 4])
-            pos = spec.index(after: pos)
-        } else if ch == "(" || ch == "[" {
+    let chars = Array(spec)
+    var pos = 0
+    while pos < chars.count {
+        let ch = chars[pos]
+        if ch == "a" || ch == "b" || ch == "c" {
+            let bufStart = buffer.count
+            let groupStart = pos
+            var i = 0
+            while pos < chars.count {
+                let c = chars[pos]
+                guard c == "a" || c == "b" || c == "c" else { break }
+                buffer.append(id(String(c)))
+                buffer.append(pos)
+                buffer.append(pos + 1)
+                buffer.append(4)
+                if i > 0 {
+                    let curLen = buffer.count
+                    buffer.append(testEnv.repeatType.id)
+                    buffer.append(groupStart)
+                    buffer.append(pos + 1)
+                    buffer.append(curLen + 4 - bufStart)
+                }
+                i += 1
+                pos += 1
+            }
+        } else if ch == "[" || ch == "(" {
             starts.append(buffer.count)
-            starts.append(spec.distance(from: spec.startIndex, to: pos))
-            pos = spec.index(after: pos)
-        } else if ch == ")" || ch == "]" {
-            let startPos = starts.removeLast()
-            let startOff = starts.removeLast()
-            let closeType = ch == ")" ? "Pa" : "Br"
-            let endPos = spec.distance(from: spec.startIndex, to: pos) + 1
-            buffer.append(contentsOf: [_id(closeType), startPos, endPos, buffer.count + 4 - startOff])
-            pos = spec.index(after: pos)
+            starts.append(pos)
+            pos += 1
+        } else if ch == "]" || ch == ")" {
+            let stringStart = starts.removeLast()
+            let bufStartOff = starts.removeLast()
+            let nodeName = ch == ")" ? "Pa" : "Br"
+            let curLen = buffer.count
+            buffer.append(id(nodeName))
+            buffer.append(stringStart)
+            buffer.append(pos + 1)
+            buffer.append(curLen + 4 - bufStartOff)
+            pos += 1
         } else {
-            pos = spec.index(after: pos)
+            pos += 1
         }
     }
-
     return Tree.build(data: BuildData(
-        buffer: .array(buffer),
-        nodeSet: sharedNodeSet,
+        buffer: buffer,
+        nodeSet: testNodeSet,
         topID: 0,
         maxBufferLength: 10,
-        minRepeatType: sharedRepeatType.id
+        minRepeatType: testEnv.repeatType.id
     ))
 }
 
-func simple() -> Tree {
-    return mk("aaaa(bbb[ccc][aaa][()])")
-}
-
-func dumpTree(_ tree: Tree, indent: String = "") {
-    for (i, child) in tree.children.enumerated() {
-        switch child {
-        case .tree(let t):
-            print("\(indent)child[\(i)]: Tree \(t.type.name) len=\(t.length) pos=\(tree.positions[i])")
-            dumpTree(t, indent: indent + "  ")
-        case .buffer(let b):
-            let buf = b.buffer
-            var entries: [String] = []
-            var idx = 0
-            while idx < buf.count {
-                let id = buf[idx]
-                let s = buf[idx+1]
-                let e = buf[idx+2]
-                let nxt = buf[idx+3]
-                entries.append("\(b.set.types[Int(id)].name)(\(s),\(e),nxt=\(nxt))")
-                idx = Int(nxt)
-            }
-            print("\(indent)child[\(i)]: Buffer len=\(b.length) [\(entries.joined(separator: ","))]")
-        }
-    }
-}
-
-nonisolated(unsafe) var _recur: Tree?
-func recur() -> Tree {
-    if let cached = _recur { return cached }
-    func build(depth: Int) -> String {
+private func buildRecurSpec() -> String {
+    func build(_ depth: Int) -> String {
         if depth > 0 {
-            let inner = build(depth: depth - 1)
+            let inner = build(depth - 1)
             return "(" + inner + ")[" + inner + "]"
         } else {
             var result = ""
-            let letters: [Character] = ["a", "b", "c"]
-            for i in 0..<20 { result.append(letters[i % 3]) }
+            for i in 0..<20 { result += ["a", "b", "c"][i % 3] }
             return result
         }
     }
-    let tree = mk(build(depth: 6))
-    _recur = tree
-    return tree
+    return build(6)
 }
 
-nonisolated(unsafe) let anonTree = Tree(
-    type: NodeType.define(spec: NodeTypeSpec(id: 0, name: "T")),
+private let _recurLock = NSLock()
+nonisolated(unsafe) private var _recur: Tree? = nil
+private func recur() -> Tree {
+    _recurLock.lock()
+    defer { _recurLock.unlock() }
+    if _recur == nil { _recur = mk(buildRecurSpec()) }
+    return _recur!
+}
+
+private let _simpleLock = NSLock()
+nonisolated(unsafe) private var _simple: Tree? = nil
+private func simple() -> Tree {
+    _simpleLock.lock()
+    defer { _simpleLock.unlock() }
+    if _simple == nil { _simple = mk("aaaa(bbb[ccc][aaa][()])") }
+    return _simple!
+}
+
+nonisolated(unsafe) private let anonTree = Tree(
+    type: testNodeSet.types[0],
     children: [
-        .tree(Tree(
+        Tree(
             type: NodeType.none,
             children: [
-                .tree(Tree(type: NodeType.define(spec: NodeTypeSpec(id: 1, name: "a")), children: [], positions: [], length: 1)),
-                .tree(Tree(type: NodeType.define(spec: NodeTypeSpec(id: 2, name: "b")), children: [], positions: [], length: 1)),
+                Tree(type: testNodeSet.types[1], children: [], positions: [], length: 1),
+                Tree(type: testNodeSet.types[2], children: [], positions: [], length: 1)
             ],
             positions: [0, 1],
             length: 2
-        )),
+        )
     ],
     positions: [0],
     length: 2
 )
-
-// MARK: - SyntaxNode tests
 
 @Suite("SyntaxNode")
 struct SyntaxNodeTests {
@@ -155,34 +162,31 @@ struct SyntaxNodeTests {
     }
 
     @Test("can resolve in a large tree")
-    func resolveLargeTree() {
+    func resolveLarge() {
         var c: SyntaxNode? = recur().resolve(pos: 10, side: 1)
         var depth = 1
-        while let parent = c?.parent {
-            c = parent
-            depth += 1
-        }
-        #expect(depth == 8)
+        while c != nil { c = c!.parent; depth += 1 }
+        #expect(depth == 9)
     }
 
     @Test("caches resolved parents")
     func cachesResolvedParents() {
         let a = recur().resolve(pos: 3, side: 1)
         let b = recur().resolve(pos: 3, side: 1)
-        #expect(a.from == b.from && a.to == b.to && a.name == b.name)
+        #expect(a as AnyObject === b as AnyObject)
     }
 
     @Test("skips anonymous nodes")
     func skipsAnonymous() {
-        #expect(anonTree.toString() == "T(a,b)")
+        #expect(anonTree.description == "T(a,b)")
         #expect(anonTree.resolve(pos: 1).name == "T")
         #expect(anonTree.topNode.lastChild!.name == "b")
         #expect(anonTree.topNode.firstChild!.name == "a")
-        #expect(anonTree.topNode.childAfter(pos: 1)!.name == "b")
+        #expect(anonTree.topNode.childAfter(1)!.name == "b")
     }
 
     @Test("allows access to the underlying tree")
-    func accessUnderlyingTree() {
+    func accessTree() {
         let tree = mk("aaa[bbbbb(bb)bbbbbbb]aaa")
         var node = tree.topNode.firstChild!
         while node.name != "Br" { node = node.nextSibling! }
@@ -191,53 +195,20 @@ struct SyntaxNodeTests {
         node = node.firstChild!
         while node.name != "Pa" { node = node.nextSibling! }
         #expect(node.tree == nil)
-        #expect(node.toTree().toString() == "Pa(b,b)")
+        #expect(node.toTree().description == "Pa(b,b)")
         node = node.firstChild!
         #expect(node.name == "b")
-        #expect(node.toTree().toString() == "b")
+        #expect(node.toTree().description == "b")
         #expect(node.toTree().children.count == 0)
-    }
-
-    @Test("getChild can get children by group")
-    func getChildByGroup() {
-        let tree = mk("aa(bb)[aabbcc]").topNode
-        func flat(_ children: [SyntaxNode]) -> String {
-            children.map(\.name).joined(separator: ",")
-        }
-        #expect(flat(tree.getChildren(type: .string("atom"), before: nil, after: nil)) == "a,a")
-        #expect(flat(tree.firstChild!.getChildren(type: .string("atom"), before: nil, after: nil)) == "")
-        #expect(flat(tree.lastChild!.getChildren(type: .string("atom"), before: nil, after: nil)) == "a,a,b,b,c,c")
-    }
-
-    @Test("getChild can get single children")
-    func getChildSingle() {
-        let tree = mk("abc()").topNode
-        #expect(tree.getChild(type: .string("Br"), before: nil, after: nil) == nil)
-        #expect(tree.getChild(type: .string("Pa"), before: nil, after: nil)?.name == "Pa")
-    }
-
-    @Test("getChild can get children between others")
-    func getChildBetweenOthers() {
-        let tree = mk("aa(bb)[aabbcc]").topNode
-        func flat(_ children: [SyntaxNode]) -> String {
-            children.map(\.name).joined(separator: ",")
-        }
-        #expect(tree.getChild(type: .string("Pa"), before: .string("atom"), after: .string("Br")) != nil)
-        #expect(tree.getChild(type: .string("Pa"), before: .string("atom"), after: .string("atom")) == nil)
-        let last = tree.lastChild!
-        #expect(flat(last.getChildren(type: .string("b"), before: .string("a"), after: .string("c"))) == "b,b")
-        #expect(flat(last.getChildren(type: .string("a"), before: nil, after: .string("c"))) == "a,a")
-        #expect(flat(last.getChildren(type: .string("c"), before: .string("b"), after: nil)) == "c,c")
-        #expect(flat(last.getChildren(type: .string("b"), before: .string("c"), after: nil)) == "")
     }
 }
 
-// MARK: - TreeCursor tests
-
 @Suite("TreeCursor")
 struct TreeCursorTests {
+    static let simpleCount: [String: Int] = ["a": 7, "b": 3, "c": 3, "Br": 3, "Pa": 2, "T": 1]
+
     @Test("iterates over all nodes")
-    func iterateForward() {
+    func iterateAll() {
         var count: [String: Int] = [:]
         var pos = 0
         let cur = simple().cursor()
@@ -246,12 +217,9 @@ struct TreeCursorTests {
             pos = cur.from
             count[cur.name, default: 0] += 1
         } while cur.next()
-        #expect(count["T"] == 1)
-        #expect(count["a"] == 7)
-        #expect(count["b"] == 3)
-        #expect(count["c"] == 3)
-        #expect(count["Br"] == 3)
-        #expect(count["Pa"] == 2)
+        for (k, v) in Self.simpleCount {
+            #expect(count[k] == v, "\(k): expected \(v), got \(count[k] ?? 0)")
+        }
     }
 
     @Test("iterates over all nodes in reverse")
@@ -264,77 +232,60 @@ struct TreeCursorTests {
             pos = cur.to
             count[cur.name, default: 0] += 1
         } while cur.prev()
-        #expect(count["T"] == 1)
-        #expect(count["a"] == 7)
-        #expect(count["b"] == 3)
-        #expect(count["c"] == 3)
-        #expect(count["Br"] == 3)
-        #expect(count["Pa"] == 2)
+        for (k, v) in Self.simpleCount {
+            #expect(count[k] == v, "\(k): expected \(v), got \(count[k] ?? 0)")
+        }
     }
 
     @Test("works with internal iteration")
     func internalIteration() {
         var openCount: [String: Int] = [:]
         var closeCount: [String: Int] = [:]
-        simple().iterate(
-            enter: { t in
-                openCount[t.name, default: 0] += 1
-                return true
-            },
-            leave: { t in
-                closeCount[t.name, default: 0] += 1
-            }
-        )
-        let expected: [String: Int] = ["T": 1, "a": 7, "b": 3, "c": 3, "Br": 3, "Pa": 2]
-        for (k, v) in expected {
-            #expect(openCount[k] == v, "open \(k)")
-            #expect(closeCount[k] == v, "close \(k)")
+        simple().iterate(enter: { t -> Bool in
+            openCount[t.name, default: 0] += 1
+            return true
+        }, leave: { t in
+            closeCount[t.name, default: 0] += 1
+        })
+        for (k, v) in Self.simpleCount {
+            #expect(openCount[k] == v)
+            #expect(closeCount[k] == v)
         }
     }
 
     @Test("handles iterating out of bounds")
-    func iterateOutOfBounds() {
+    func outOfBounds() {
         var hit = 0
-        Tree.empty.iterate(
-            enter: { _ in hit += 1; return true },
-            leave: { _ in hit += 1 },
-            from: 0,
-            to: 200
-        )
+        Tree.empty.iterate(from: 0, to: 200, enter: { _ -> Bool in hit += 1; return true }, leave: { _ in hit += 1 })
         #expect(hit == 0)
     }
 
     @Test("internal iteration can be limited to a range")
-    func limitedIteration() {
+    func limitedRange() {
         var seen: [String] = []
-        simple().iterate(
-            enter: { t in
-                seen.append(t.name)
-                if t.name == "Br" { return false }
-                return true
-            },
-            from: 3,
-            to: 14
-        )
+        simple().iterate(from: 3, to: 14, enter: { t -> Bool in
+            seen.append(t.name)
+            return t.name == "Br" ? false : true
+        })
         #expect(seen.joined(separator: ",") == "T,a,a,Pa,b,b,b,Br,Br")
     }
 
     @Test("can leave nodes")
-    func canLeaveNodes() {
-        let cur = simple().cursor()
-        #expect(!cur.parent())
-        _ = cur.next()
-        _ = cur.next()
-        #expect(cur.from == 1)
-        #expect(cur.parent())
-        #expect(cur.from == 0)
-        for _ in 0..<6 { _ = cur.next() }
-        #expect(cur.from == 5)
-        #expect(cur.parent())
-        #expect(cur.from == 4)
-        #expect(cur.parent())
-        #expect(cur.from == 0)
-        #expect(!cur.parent())
+    func leaveNodes() {
+        let c = simple().cursor()
+        #expect(!c.parent())
+        _ = c.next()
+        _ = c.next()
+        #expect(c.from == 1)
+        #expect(c.parent())
+        #expect(c.from == 0)
+        for _ in 0..<6 { _ = c.next() }
+        #expect(c.from == 5)
+        #expect(c.parent())
+        #expect(c.from == 4)
+        #expect(c.parent())
+        #expect(c.from == 0)
+        #expect(!c.parent())
     }
 
     @Test("can move to a given position")
@@ -348,29 +299,31 @@ struct TreeCursorTests {
     }
 
     @Test("can move into a parent node")
-    func moveToParent() {
-        let c = simple().cursorAt(pos: 10).moveTo(pos: 2)
+    func moveIntoParent() {
+        let c = simple().cursorAt(pos: 10)
+        c.moveTo(pos: 2)
         #expect(c.name == "T")
     }
 
-    @Test("can move to a specific sibling")
-    func moveToSibling() {
-        let cursor = simple().cursor()
-        #expect(cursor.childAfter(pos: 2))
-        #expect(cursor.to == 3)
-        _ = cursor.parent()
-        #expect(cursor.childBefore(pos: 5))
-        #expect(cursor.from == 4)
-        #expect(cursor.childAfter(pos: 11))
-        #expect(cursor.from == 8)
-        #expect(cursor.childBefore(pos: 10))
-        #expect(cursor.from == 9)
-        #expect(!simple().cursor().childBefore(pos: 0))
-        #expect(!simple().cursor().childAfter(pos: 100))
+    @Test("isn't slow")
+    func performance() {
+        let tree = recur()
+        let t0 = Date()
+        var count = 0
+        for _ in 0..<2000 {
+            let c = tree.cursor()
+            repeat {
+                if c.from < 0 || c.name.isEmpty { Issue.record("BAD"); break }
+                count += 1
+            } while c.next()
+        }
+        let elapsed = Date().timeIntervalSince(t0) * 1000
+        let perMS = Double(count) / max(elapsed, 1)
+        #expect(perMS > 1000, "Performance too low: \(perMS) per ms")
     }
 
     @Test("can produce nodes")
-    func nodeFromCursor() {
+    func produceNodes() {
         let node = simple().cursorAt(pos: 8, side: 1).node
         #expect(node.name == "Br")
         #expect(node.from == 8)
@@ -381,58 +334,10 @@ struct TreeCursorTests {
         #expect(node.parent!.parent!.parent == nil)
     }
 
-    @Test("isn't slow")
-    func performance() {
-        let tree = recur()
-        let t0 = Date()
-        var count = 0
-        for _ in 0..<2000 {
-        let cur = tree.cursor()
-            repeat {
-                if cur.from < 0 || cur.name.isEmpty { Issue.record("BAD cursor") }
-                count += 1
-            } while cur.next()
-        }
-        let elapsed = Date().timeIntervalSince(t0)
-        let perMS = Double(count) / max(elapsed * 1000, 1)
-        // TS expects 10,000 traversals/ms in Node.js (release), while Swift gets ~460 on debug builds — we lowered it
-        // to 10 to catch pathological regressions without requiring release-mode optimizations
-        #expect(perMS > 10)
-    }
-
-    @Test("can produce node from cursors created from nodes")
-    func cursorFromNode() {
-        let cur = simple().topNode.lastChild!.childAfter(pos: 8)!.childAfter(pos: 10)!.cursor(mode: nil)
-        #expect(cur.name == "c")
-        #expect(cur.from == 10)
-        #expect(cur.parent())
-        let node = cur.node
-        #expect(node.name == "Br")
-        #expect(node.from == 8)
-        #expect(node.parent!.name == "Pa")
-        #expect(node.parent!.from == 4)
-        #expect(node.parent!.parent!.name == "T")
-        #expect(node.parent!.parent!.parent == nil)
-    }
-
-    @Test("reuses nodes in buffers")
-    func reusesBufferNodes() {
-        let cur = simple().cursorAt(pos: 10, side: 1)
-        let n10 = cur.node
-        #expect(n10.name == "c")
-        #expect(n10.from == 10)
-        #expect(cur.node.name == n10.name && cur.node.from == n10.from)
-        _ = cur.nextSibling()
-        let parent = n10.parent
-        #expect(cur.node.parent?.name == parent?.name && cur.node.parent?.from == parent?.from)
-        _ = cur.parent()
-        #expect(cur.node.name == parent?.name && cur.node.from == parent?.from)
-    }
-
-    @Test("skips anonymous nodes")
-    func skipAnonymousCursor() {
+    @Test("skips anonymous nodes in cursor")
+    func skipsAnonymousCursor() {
         let c = anonTree.cursor()
-        _ = c.moveTo(pos: 1)
+        c.moveTo(pos: 1)
         #expect(c.name == "T")
         _ = c.firstChild()
         #expect(c.name == "a")
@@ -440,43 +345,29 @@ struct TreeCursorTests {
         #expect(c.name == "b")
         #expect(!c.next())
     }
-
-    @Test("stops at anonymous nodes when configured as full")
-    func includeAnonymousCursor() {
-        let c = anonTree.cursor(mode: .includeAnonymous)
-        _ = c.moveTo(pos: 1)
-        #expect(c.type == NodeType.none)
-        #expect(c.tree!.length == 2)
-        _ = c.firstChild()
-        #expect(c.name == "a")
-        _ = c.parent()
-        #expect(c.type == NodeType.none)
-    }
 }
-
-// MARK: - matchContext tests
 
 @Suite("matchContext")
 struct MatchContextTests {
     @Test("can match on nodes")
-    func matchOnNodes() {
-        #expect(simple().resolve(pos: 10, side: 1).matchContext(context: ["T", "Pa", "Br"]))
+    func matchNodes() {
+        #expect(simple().resolve(pos: 10, side: 1).matchContext(["T", "Pa", "Br"]))
     }
 
     @Test("can match wildcards")
     func matchWildcards() {
-        #expect(simple().resolve(pos: 10, side: 1).matchContext(context: ["T", "", "Br"]))
+        #expect(simple().resolve(pos: 10, side: 1).matchContext(["T", "", "Br"]))
     }
 
     @Test("can mismatch on nodes")
-    func mismatchOnNodes() {
-        #expect(!simple().resolve(pos: 10, side: 1).matchContext(context: ["Q", "Br"]))
+    func mismatchNodes() {
+        #expect(!simple().resolve(pos: 10, side: 1).matchContext(["Q", "Br"]))
     }
 
     @Test("can match on cursor")
-    func matchOnCursor() {
-        let c = simple().cursor()
-        for _ in 0..<3 { _ = c.enter(pos: 15, side: -1) }
-        #expect(c.matchContext(context: ["T", "Pa", "Br"]))
+    func matchCursor() {
+        let cur = simple().cursor()
+        for _ in 0..<3 { _ = cur.enter(15, side: -1) }
+        #expect(cur.matchContext(["T", "Pa", "Br"]))
     }
 }

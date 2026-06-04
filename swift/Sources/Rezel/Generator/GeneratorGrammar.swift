@@ -1,349 +1,242 @@
-//
-//  Grammar.swift
-//  Rezel
-//
-//  Created on 2025-06-11.
-//
-
 import Foundation
-
-fileprivate struct TermFlag {
-    static let terminal = 1
-    static let top = 2
-    static let eof = 4
-    static let preserve = 8
-    static let repeated = 16
-    static let inline = 32
-}
-
 public typealias Props = [String: String]
 
 public func hasProps(_ props: Props) -> Bool {
-    return !props.isEmpty
+    !props.isEmpty
 }
 
-fileprivate nonisolated(unsafe) var termHash = 0
+public func chain(_ values: Int...) -> Int {
+    for v in values { if v != 0 { return v } }
+    return 0
+}
 
-/// A term in the grammar (terminal or non-terminal)
-public class Term {
-    var hash: Int = { termHash += 1; return termHash }()
-    var id: Int = -1
-    var rules: [Rule] = []
-    
-    let name: String
-    private var flags: Int
-    let nodeName: String?
-    var props: Props
-    
-    init(name: String, flags: Int, nodeName: String?, props: Props = [:]) {
+nonisolated(unsafe) private var termHashCounter = 0
+
+public class Term: CustomStringConvertible {
+    public var hash: Int
+    public var id: Int = -1
+    public var rules: [Rule] = []
+
+    public let name: String
+    public private(set) var flags: Int
+    public let nodeName: String?
+    public var props: Props
+
+    public init(name: String, flags: Int, nodeName: String?, props: Props = [:]) {
+        termHashCounter += 1
+        self.hash = termHashCounter
         self.name = name
         self.flags = flags
         self.nodeName = nodeName
         self.props = props
     }
-    
-    public func toString() -> String {
-        return name
+
+    public var description: String { name }
+
+    public var nodeType: Bool { top || nodeName != nil || hasProps(props) || repeated }
+
+    public var terminal: Bool { (flags & TermFlag.terminal) > 0 }
+    public var eof: Bool { (flags & TermFlag.eof) > 0 }
+    public var error: Bool { props["error"] != nil }
+    public var top: Bool { (flags & TermFlag.top) > 0 }
+    public var interesting: Bool { flags > 0 || nodeName != nil }
+    public var repeated: Bool { (flags & TermFlag.repeated) > 0 }
+
+    public var preserve: Bool {
+        get { (flags & TermFlag.preserve) > 0 }
+        set { flags = newValue ? flags | TermFlag.preserve : flags & ~TermFlag.preserve }
     }
-    
-    var nodeType: Bool {
-        return top || nodeName != nil || hasProps(props) || repeated
+
+    public var inline: Bool {
+        get { (flags & TermFlag.inline) > 0 }
+        set { flags = newValue ? flags | TermFlag.inline : flags & ~TermFlag.inline }
     }
-    
-    var terminal: Bool {
-        return (flags & TermFlag.terminal) > 0
-    }
-    
-    var `eof`: Bool {
-        return (flags & TermFlag.eof) > 0
-    }
-    
-    var error: Bool {
-        return props["error"] != nil
-    }
-    
-    var top: Bool {
-        return (flags & TermFlag.top) > 0
-    }
-    
-    var interesting: Bool {
-        return flags > 0 || nodeName != nil
-    }
-    
-    var repeated: Bool {
-        return (flags & TermFlag.repeated) > 0
-    }
-    
-    var preserve: Bool {
-        get {
-            return (flags & TermFlag.preserve) > 0
-        }
-        set {
-            flags = newValue ? (flags | TermFlag.preserve) : (flags & ~TermFlag.preserve)
-        }
-    }
-    
-    var `inline`: Bool {
-        get {
-            return (flags & TermFlag.inline) > 0
-        }
-        set {
-            flags = newValue ? (flags | TermFlag.inline) : (flags & ~TermFlag.inline)
-        }
-    }
-    
-    func cmp(_ other: Term) -> Int {
-        return hash - other.hash
-    }
+
+    public func cmp(_ other: Term) -> Int { hash - other.hash }
 }
 
-/// Set of terms in the grammar
+public struct TermFlag {
+    public static let terminal = 1
+    public static let top = 2
+    public static let eof = 4
+    public static let preserve = 8
+    public static let repeated = 16
+    public static let inline = 32
+}
+
 public class TermSet {
-    var terms: [Term] = []
-    var names: [String: Term] = [:]
-    var eof: Term
-    var error: Term
-    var tops: [Term] = []
-    
-    init() {
-        eof = Term(name: "␄", flags: TermFlag.terminal | TermFlag.eof, nodeName: nil)
-        error = Term(name: "⚠", flags: TermFlag.preserve, nodeName: "⚠")
-        terms.append(eof)
-        terms.append(error)
-        names["␄"] = eof
-        names["⚠"] = error
+    public var terms: [Term] = []
+    public var names: [String: Term] = [:]
+    public let eof: Term
+    public let error: Term
+    public var tops: [Term] = []
+
+    public init() {
+        let eofTerm = Term(name: "␄", flags: TermFlag.terminal | TermFlag.eof, nodeName: nil)
+        let errorTerm = Term(name: "⚠", flags: TermFlag.preserve, nodeName: "⚠")
+        terms.append(eofTerm); names["␄"] = eofTerm
+        terms.append(errorTerm); names["⚠"] = errorTerm
+        eof = eofTerm; error = errorTerm
     }
-    
-    func term(_ name: String, nodeName: String?, flags: Int = 0, props: Props = [:]) -> Term {
-        let term = Term(name: name, flags: flags, nodeName: nodeName, props: props)
-        terms.append(term)
-        names[name] = term
-        return term
+
+    @discardableResult
+    public func term(_ name: String, _ nodeName: String?, _ flags: Int = 0, _ props: Props = [:]) -> Term {
+        let t = Term(name: name, flags: flags, nodeName: nodeName, props: props)
+        terms.append(t)
+        names[name] = t
+        return t
     }
-    
-    func makeTop(nodeName: String?, props: Props) -> Term {
-        let term = self.term("@top", nodeName: nodeName, flags: TermFlag.top, props: props)
-        tops.append(term)
-        return term
+
+    public func makeTop(_ nodeName: String?, _ props: Props) -> Term {
+        let t = Term(name: "@top", flags: TermFlag.top, nodeName: nodeName, props: props)
+        terms.append(t)
+        names["@top"] = t
+        tops.append(t)
+        return t
     }
-    
-    func makeTerminal(_ name: String, nodeName: String?, props: Props = [:]) -> Term {
-        return term(name, nodeName: nodeName, flags: TermFlag.terminal, props: props)
+
+    public func makeTerminal(_ name: String, _ nodeName: String?, _ props: Props = [:]) -> Term {
+        let t = Term(name: name, flags: TermFlag.terminal, nodeName: nodeName, props: props)
+        terms.append(t)
+        names[name] = t
+        return t
     }
-    
-    func makeNonTerminal(_ name: String, nodeName: String?, props: Props = [:]) -> Term {
-        return term(name, nodeName: nodeName, flags: 0, props: props)
+
+    public func makeNonTerminal(_ name: String, _ nodeName: String?, _ props: Props = [:]) -> Term {
+        let t = Term(name: name, flags: 0, nodeName: nodeName, props: props)
+        terms.append(t)
+        names[name] = t
+        return t
     }
-    
-    func makeRepeat(_ name: String) -> Term {
-        return term(name, nodeName: nil, flags: TermFlag.repeated)
+
+    public func makeRepeat(_ name: String) -> Term {
+        let t = Term(name: name, flags: TermFlag.repeated, nodeName: nil)
+        terms.append(t)
+        names[name] = t
+        return t
     }
-    
-    func uniqueName(_ name: String) -> String {
+
+    public func uniqueName(_ name: String) -> String {
         var i = 0
         while true {
             let cur = i == 0 ? name : "\(name)-\(i)"
-            if names[cur] == nil {
-                return cur
-            }
+            if names[cur] == nil { return cur }
             i += 1
         }
     }
-    
-    func finish(rules: [Rule]) -> (nodeTypes: [Term], names: [Int: String], minRepeatTerm: Int, maxTerm: Int) {
-        for rule in rules {
-            rule.name.rules.append(rule)
+
+    public func finish(_ rules: [Rule]) throws -> (nodeTypes: [Term], names: [Int: String], minRepeatTerm: Int, maxTerm: Int) {
+        for rule in rules { rule.name.rules.append(rule) }
+
+        terms = terms.filter { t in
+            t.terminal || t.preserve || rules.contains { $0.name === t || $0.parts.contains { $0 === t } }
         }
-        
-        terms = terms.filter { term in
-            term.terminal || term.preserve || rules.contains { rule in
-                rule.name === term || rule.parts.contains(where: { $0 === term })
-            }
-        }
-        
+
         var names: [Int: String] = [:]
         var nodeTypes = [error]
-        
-        error.id = 0
-        var nextID = 1
-        
-        // Assign ids to terms that represent node types
-        for term in terms {
-            if term.id < 0 && term.nodeType && !term.repeated {
-                term.id = nextID
-                nextID += 1
-                nodeTypes.append(term)
+
+        error.id = LrTerm.Err
+        var nextID = LrTerm.Err + 1
+
+        for t in terms {
+            if t.id < 0 && t.nodeType && !t.repeated {
+                t.id = nextID; nextID += 1; nodeTypes.append(t)
             }
         }
-        
-        // Put all repeated terms after the regular node types
         let minRepeatTerm = nextID
-        for term in terms {
-            if term.repeated {
-                term.id = nextID
-                nextID += 1
-                nodeTypes.append(term)
-            }
+        for t in terms {
+            if t.repeated { t.id = nextID; nextID += 1; nodeTypes.append(t) }
         }
-        
-        // Then comes the EOF term
-        eof.id = nextID
-        nextID += 1
-        
-        // And then the remaining (non-node, non-repeat) terms
-        for term in terms {
-            if term.id < 0 {
-                term.id = nextID
-                nextID += 1
-            }
-            if term.name.isEmpty == false {
-                names[term.id] = term.name
-            }
+        eof.id = nextID; nextID += 1
+        for t in terms {
+            if t.id < 0 { t.id = nextID; nextID += 1 }
+            if !t.name.isEmpty { names[t.id] = t.name }
         }
-        
-        if nextID >= 0xfffe {
-            fatalError("Too many terms")
-        }
-        
-        return (nodeTypes: nodeTypes, names: names, minRepeatTerm: minRepeatTerm, maxTerm: nextID - 1)
+        if nextID >= 0xfffe { throw GenError("Too many terms") }
+        return (nodeTypes, names, minRepeatTerm, nextID - 1)
     }
 }
 
-/// Compare two arrays element by element
-public func cmpSet<T>(_ a: [T], _ b: [T], cmp: (T, T) -> Int) -> Int {
-    if a.count != b.count {
-        return a.count - b.count
-    }
+private struct TermID {
+    static let err = 0
+}
+
+public func cmpSet<T>(_ a: [T], _ b: [T], _ cmp: (T, T) -> Int) -> Int {
+    if a.count != b.count { return a.count - b.count }
     for i in 0..<a.count {
         let diff = cmp(a[i], b[i])
-        if diff != 0 {
-            return diff
-        }
+        if diff != 0 { return diff }
     }
     return 0
 }
 
-/// Conflict resolution information
+nonisolated(unsafe) private let conflictsNone = Conflicts(precedence: 0)
+
 public class Conflicts {
-    let precedence: Int
-    let ambigGroups: [String]
-    let cut: Int
-    
-    init(precedence: Int, ambigGroups: [String] = [], cut: Int = 0) {
+    public let precedence: Int
+    public let ambigGroups: [String]
+    public let cut: Int
+
+    public init(precedence: Int, _ ambigGroups: [String] = [], cut: Int = 0) {
         self.precedence = precedence
         self.ambigGroups = ambigGroups
         self.cut = cut
     }
-    
-    func join(_ other: Conflicts) -> Conflicts {
-        if self === Conflicts.none || self === other {
-            return other
-        }
-        if other === Conflicts.none {
-            return self
-        }
-        return Conflicts(
-            precedence: max(self.precedence, other.precedence),
-            ambigGroups: union(self.ambigGroups, other.ambigGroups),
-            cut: max(self.cut, other.cut)
-        )
+
+    public func join(_ other: Conflicts) -> Conflicts {
+        if self === Conflicts.none || self === other { return other }
+        if other === Conflicts.none { return self }
+        return Conflicts(precedence: max(precedence, other.precedence),
+                         union(ambigGroups, other.ambigGroups),
+                         cut: max(cut, other.cut))
     }
-    
-    func cmp(_ other: Conflicts) -> Int {
-        let precedenceDiff = self.precedence - other.precedence
-        if precedenceDiff != 0 {
-            return precedenceDiff
-        }
-        
-        let ambigGroupsDiff = cmpSet(self.ambigGroups, other.ambigGroups) { a, b in
-            if a < b { return -1 }
-            if a > b { return 1 }
-            return 0
-        }
-        if ambigGroupsDiff != 0 {
-            return ambigGroupsDiff
-        }
-        
-        return self.cut - other.cut
+
+    public func cmp(_ other: Conflicts) -> Int {
+        return chain(precedence - other.precedence,
+            cmpSet(ambigGroups, other.ambigGroups, { a, b in a < b ? -1 : a > b ? 1 : 0 }),
+            cut - other.cut)
     }
-    
-    static nonisolated(unsafe) let none = Conflicts(precedence: 0)
+
+    nonisolated(unsafe) public static let none = Conflicts(precedence: 0)
 }
 
-/// Union of two sorted arrays
-public func union<T>(_ a: [T], _ b: [T]) -> [T] where T: Comparable {
-    if a.isEmpty || a == b {
-        return b
-    }
-    if b.isEmpty {
-        return a
-    }
-    
+public func union<T: Comparable>(_ a: [T], _ b: [T]) -> [T] {
+    if a.isEmpty || a.elementsEqual(b) { return b }
+    if b.isEmpty { return a }
     var result = a
-    for value in b {
-        if !a.contains(value) {
-            result.append(value)
-        }
-    }
+    for v in b { if !a.contains(v) { result.append(v) } }
     return result.sorted()
 }
 
-fileprivate nonisolated(unsafe) var ruleID = 0
+nonisolated(unsafe) private var ruleIDCounter = 0
 
-/// A grammar rule
-public class Rule {
-    let id: Int = { ruleID += 1; return ruleID }()
-    
-    let name: Term
-    let parts: [Term]
-    let conflicts: [Conflicts]
-    let skip: Term
-    
-    init(name: Term, parts: [Term], conflicts: [Conflicts], skip: Term) {
-        self.name = name
-        self.parts = parts
-        self.conflicts = conflicts
-        self.skip = skip
+public class Rule: CustomStringConvertible {
+    public let id: Int
+    public let name: Term
+    public let parts: [Term]
+    public let conflicts: [Conflicts]
+    public let skip: Term
+
+    public init(name: Term, parts: [Term], conflicts: [Conflicts], skip: Term) {
+        ruleIDCounter += 1
+        self.id = ruleIDCounter
+        self.name = name; self.parts = parts; self.conflicts = conflicts; self.skip = skip
     }
-    
-    func cmp(_ rule: Rule) -> Int {
-        return id - rule.id
+
+    public func cmp(_ rule: Rule) -> Int { id - rule.id }
+
+    public func cmpNoName(_ rule: Rule) -> Int {
+        return chain(parts.count - rule.parts.count,
+            skip.hash - rule.skip.hash,
+            parts.enumerated().reduce(0) { r, p in r != 0 ? r : p.element.cmp(rule.parts[p.offset]) },
+            cmpSet(conflicts, rule.conflicts, { a, b in a.cmp(b) }))
     }
-    
-    func cmpNoName(_ rule: Rule) -> Int {
-        let lengthDiff = parts.count - rule.parts.count
-        if lengthDiff != 0 {
-            return lengthDiff
-        }
-        
-        let skipDiff = skip.hash - rule.skip.hash
-        if skipDiff != 0 {
-            return skipDiff
-        }
-        
-        for i in 0..<parts.count {
-            let partDiff = parts[i].cmp(rule.parts[i])
-            if partDiff != 0 {
-                return partDiff
-            }
-        }
-        
-        return cmpSet(conflicts, rule.conflicts) { a, b in
-            a.cmp(b)
-        }
-    }
-    
-    func toString() -> String {
-        return "\(name) -> \(parts.map { $0.toString() }.joined(separator: " "))"
-    }
-    
-    var isRepeatWrap: Bool {
-        return name.repeated && parts.count == 2 && parts[0] === name
-    }
-    
-    func sameReduce(_ other: Rule) -> Bool {
-        return name === other.name &&
-               parts.count == other.parts.count &&
-               isRepeatWrap == other.isRepeatWrap
+
+    public var description: String { "\(name) -> \(parts.map { "\($0)" }.joined(separator: " "))" }
+
+    public var isRepeatWrap: Bool { name.repeated && parts.count == 2 && parts[0] === name }
+
+    public func sameReduce(_ other: Rule) -> Bool {
+        name === other.name && parts.count == other.parts.count && isRepeatWrap == other.isRepeatWrap
     }
 }

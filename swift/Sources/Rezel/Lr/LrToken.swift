@@ -1,276 +1,194 @@
-//
-//  Token.swift
-//  Rezel
-//
-//  Created on 2025-06-11.
-//
-
-import Foundation
-
 public class CachedToken {
-    var start = -1
-    var value = -1
-    var end = -1
-    var `extended` = -1
-    var lookAhead = 0
-    var mask = 0
-    var context = 0
+    public var start: Int = -1
+    public var value: Int = -1
+    public var end: Int = -1
+    public var extended: Int = -1
+    public var lookAhead: Int = 0
+    public var mask: Int = 0
+    public var context: Int = 0
+
+    public init() {}
 }
 
-fileprivate nonisolated(unsafe) let nullToken = CachedToken()
+nonisolated(unsafe) private let nullToken = CachedToken()
 
-/// [Tokenizers](#lr.ExternalTokenizer) interact with the input
-/// through this interface. It presents the input as a stream of
-/// characters, tracking lookahead and hiding the complexity of
-/// [ranges](#common.Parser.parse^ranges) from tokenizer code.
 public class InputStream {
-    /// @internal
-    var chunk = ""
-    /// @internal
-    var chunkOff = 0
-    /// @internal
-    var chunkPos = Int(0)
-    
-    // Backup chunk
-    private var chunk2 = ""
-    private var chunk2Pos = Int(0)
-    
-    /// The character code of the next code unit in the input, or -1
-    /// when the stream is at the end of the input.
-    var next: Int = -1
-    
-    /// @internal
-    var token: CachedToken = nullToken
-    
-    /// The current position of the stream. Note that, due to parses
-    /// being able to cover non-contiguous
-    /// [ranges](#common.Parser.startParse), advancing the stream does
-    /// not always mean its position moves a single unit.
-    var pos: Int = Int(0)
-    
-    /// @internal
-    let end: Int
-    
-    private var rangeIndex = 0
+    public var chunk: String = "" {
+        didSet { chunkUtf16 = Array(chunk.utf16) }
+    }
+    public var chunkOff: Int = 0
+    public var chunkPos: Int
+    private var chunk2: String = "" {
+        didSet { chunk2Utf16 = Array(chunk2.utf16) }
+    }
+    private var chunk2Pos: Int = 0
+    private var chunkUtf16: [UInt16] = []
+    private var chunk2Utf16: [UInt16] = []
+
+    public var next: Int = -1
+    public var token: CachedToken = nullToken
+    public var pos: Int
+    public var end: Int
+
+    private var rangeIndex: Int = 0
     private var range: Range
-    
-    let input: any Input
-    let ranges: [Range]
-    
-    /// @internal
-    init(input: any Input, ranges: [Range]) {
+
+    public let input: InputProtocol
+    public let ranges: [Range]
+
+    public init(input: InputProtocol, ranges: [Range]) {
         self.input = input
         self.ranges = ranges
         self.pos = ranges[0].from
-        self.chunkPos = ranges[0].from
+        self.chunkPos = pos
         self.range = ranges[0]
         self.end = ranges[ranges.count - 1].to
         readNext()
     }
-    
-    /// @internal
-    func resolveOffset(_ offset: Int, assoc: Int) -> Int? {
+
+    public func resolveOffset(_ offset: Int, assoc: Int) -> Int? {
         var range = self.range
         var index = self.rangeIndex
         var pos = self.pos + offset
-        
         while pos < range.from {
-            if index == 0 {
-                return nil
-            }
-            let next = ranges[index - 1]
+            if index == 0 { return nil }
+            index -= 1
+            let next = self.ranges[index]
             pos -= range.from - next.to
             range = next
-            index -= 1
         }
-        
-        while (assoc < 0 ? pos > range.to : pos >= range.to) {
-            if index == ranges.count - 1 {
-                return nil
-            }
-            let next = ranges[index + 1]
+        while assoc < 0 ? pos > range.to : pos >= range.to {
+            if index == self.ranges.count - 1 { return nil }
+            index += 1
+            let next = self.ranges[index]
             pos += next.from - range.to
             range = next
-            index += 1
         }
-        
         return pos
     }
-    
-    /// @internal
-    func clipPos(_ pos: Int) -> Int {
-        if pos >= range.from && pos < range.to {
-            return pos
-        }
-        for range in ranges {
-            if range.to > pos {
-                return max(pos, range.from)
-            }
+
+    public func clipPos(_ pos: Int) -> Int {
+        if pos >= range.from && pos < range.to { return pos }
+        for r in ranges {
+            if r.to > pos { return max(pos, r.from) }
         }
         return end
     }
-    
-    /// Look at a code unit near the stream position. `.peek(0)` equals
-    /// `.next`, `.peek(-1)` gives you the previous character, and so
-    /// on.
-    ///
-    /// Note that looking around during tokenizing creates dependencies
-    /// on potentially far-away content, which may reduce the
-    /// effectiveness incremental parsing—when looking forward—or even
-    /// cause invalid reparses when looking backward more than 25 code
-    /// units, since the library does not track lookbehind.
-    func peek(_ offset: Int) -> Int {
+
+    public func peek(_ offset: Int) -> Int {
         let idx = chunkOff + offset
         var pos: Int
         var result: Int
-        
-        if idx >= 0 && idx < chunk.utf16.count {
+
+        if idx >= 0 && idx < chunkUtf16.count {
             pos = self.pos + offset
-            guard !chunk.isEmpty else { return -1 }
-            let strIdx = chunk.index(chunk.startIndex, offsetBy: idx)
-            guard strIdx < chunk.endIndex else { return -1 }
-            result = Int(chunk.utf16[strIdx])
+            result = Int(chunkUtf16[idx])
         } else {
-            guard let resolved = resolveOffset(offset, assoc: 1) else {
-                return -1
-            }
+            guard let resolved = resolveOffset(offset, assoc: 1) else { return -1 }
             pos = resolved
-            if pos >= chunk2Pos && pos < chunk2Pos + chunk2.utf16.count {
-                guard !chunk2.isEmpty else { return -1 }
-                let offset = pos - chunk2Pos
-                if offset >= 0 && offset < chunk2.utf16.count {
-                    let strIdx = chunk2.index(chunk2.startIndex, offsetBy: offset)
-                    guard strIdx < chunk2.endIndex else { return -1 }
-                    result = Int(chunk2.utf16[strIdx])
-                } else {
-                    return -1
-                }
+            if pos >= chunk2Pos && pos < chunk2Pos + chunk2Utf16.count {
+                result = Int(chunk2Utf16[pos - chunk2Pos])
             } else {
                 var i = rangeIndex
-                var currentRange = range
-                while currentRange.to <= pos && i + 1 < ranges.count {
-                    currentRange = ranges[i + 1]
+                var r = range
+                while r.to <= pos {
                     i += 1
+                    r = ranges[i]
                 }
-                
                 chunk2 = input.chunk(from: pos)
                 chunk2Pos = pos
-                
-                if pos + chunk2.utf16.count > currentRange.to {
-                    let endOffset = currentRange.to - pos
-                    let endIndex = chunk2.index(chunk2.startIndex, offsetBy: endOffset)
-                    chunk2 = String(chunk2[..<endIndex])
+                if pos + chunk2Utf16.count > r.to {
+                    let endIdx = chunk2.utf16.index(chunk2.startIndex, offsetBy: r.to - pos)
+                    chunk2 = String(chunk2[chunk2.startIndex..<endIdx])
                 }
-                guard !chunk2.isEmpty else { return -1 }
-                result = Int(chunk2.utf16[chunk2.startIndex])
+                result = chunk2Utf16.count > 0 ? Int(chunk2Utf16[0]) : -1
             }
         }
-        
-        if pos >= token.lookAhead {
-            token.lookAhead = pos + 1
-        }
+        if pos >= token.lookAhead { token.lookAhead = pos + 1 }
         return result
     }
-    
-    /// Accept a token. By default, the end of the token is set to the
-    /// current stream position, but you can pass an offset (relative to
-    /// the stream position) to change that.
-    func acceptToken(_ tokenValue: Int, endOffset: Int = 0) {
-        guard let end = endOffset != 0 ? resolveOffset(endOffset, assoc: -1) : self.pos else {
-            fatalError("Token end out of bounds")
+
+    public func acceptToken(_ token: Int, endOffset: Int = 0) {
+        let end: Int
+        if endOffset != 0 {
+            guard let resolved = resolveOffset(endOffset, assoc: -1) else {
+                fatalError("Token end out of bounds")
+            }
+            end = resolved
+        } else {
+            end = pos
         }
-        if end < token.start {
-            fatalError("Token end out of bounds")
-        }
-        self.token.value = tokenValue
+        if end < self.token.start { fatalError("Token end out of bounds") }
+        self.token.value = token
         self.token.end = end
     }
-    
-    /// Accept a token ending at a specific given position.
-    func acceptTokenTo(_ token: Int, endPos: Int) {
+
+    public func acceptTokenTo(_ token: Int, endPos: Int) {
         self.token.value = token
         self.token.end = endPos
     }
-    
+
     private func getChunk() {
-        if pos >= chunk2Pos && pos < chunk2Pos + chunk2.utf16.count {
-            let tempChunk = chunk
-            let tempChunkPos = chunkPos
+        if pos >= chunk2Pos && pos < chunk2Pos + chunk2Utf16.count {
+            let oldChunk = chunk
+            let oldChunkPos = chunkPos
             chunk = chunk2
             chunkPos = chunk2Pos
-            chunk2 = tempChunk
-            chunk2Pos = tempChunkPos
+            chunk2 = oldChunk
+            chunk2Pos = oldChunkPos
             chunkOff = pos - chunkPos
         } else {
             chunk2 = chunk
             chunk2Pos = chunkPos
-            let nextChunk = input.chunk(from: pos)
-            let end = pos + nextChunk.utf16.count
-            
-            if end > range.to {
-                let endOffset = range.to - pos
-                let endIndex = nextChunk.index(nextChunk.startIndex, offsetBy: endOffset)
-                chunk = String(nextChunk[..<endIndex])
-            } else {
-                chunk = nextChunk
+            var nextChunk = input.chunk(from: pos)
+            let endPos = pos + nextChunk.utf16.count
+            if endPos > range.to {
+                let endIdx = nextChunk.utf16.index(nextChunk.startIndex, offsetBy: range.to - pos)
+                nextChunk = String(nextChunk[nextChunk.startIndex..<endIdx])
             }
-            
+            chunk = nextChunk
             chunkPos = pos
             chunkOff = 0
         }
     }
-    
-    @discardableResult
+
     private func readNext() -> Int {
-        if chunkOff >= chunk.utf16.count {
+        if chunkOff >= chunkUtf16.count {
             getChunk()
-            if chunkOff >= chunk.utf16.count {
-                next = -1
-                return next
-            }
+            if chunkOff >= chunkUtf16.count { next = -1; return next }
         }
-        next = Int(chunk.utf16[chunk.index(chunk.startIndex, offsetBy: chunkOff)])
+        next = Int(chunkUtf16[chunkOff])
         return next
     }
-    
-    /// Move the stream forward N (defaults to 1) code units. Returns
-    /// the new value of `next`.
+
     @discardableResult
-    func advance(_ n: Int = 1) -> Int {
+    public func advance(_ n: Int = 1) -> Int {
         chunkOff += n
-        var remaining = n
-        
-        while pos + remaining >= range.to {
-            if rangeIndex == ranges.count - 1 {
-                return setDone()
-            }
-            remaining -= range.to - pos
+        var n = n
+        while pos + n >= range.to {
+            if rangeIndex == ranges.count - 1 { return setDone() }
+            n -= range.to - pos
             rangeIndex += 1
             range = ranges[rangeIndex]
             pos = range.from
         }
-        
-        pos += remaining
-        
-        if pos >= token.lookAhead {
-            token.lookAhead = pos + 1
-        }
-        
+        pos += n
+        if pos >= token.lookAhead { token.lookAhead = pos + 1 }
         return readNext()
     }
-    
-    @discardableResult
+
     private func setDone() -> Int {
-        chunkPos = end
         pos = end
+        chunkPos = end
         range = ranges[ranges.count - 1]
+        rangeIndex = ranges.count - 1
         chunk = ""
         next = -1
         return next
     }
-    
-    /// @internal
-    func reset(_ pos: Int, token: CachedToken? = nil) -> InputStream {
+
+    @discardableResult
+    public func reset(_ pos: Int, token: CachedToken? = nil) -> InputStream {
         if let token = token {
             self.token = token
             token.start = pos
@@ -280,14 +198,12 @@ public class InputStream {
         } else {
             self.token = nullToken
         }
-        
         if self.pos != pos {
             self.pos = pos
             if pos == end {
                 setDone()
                 return self
             }
-            
             while pos < range.from {
                 rangeIndex -= 1
                 range = ranges[rangeIndex]
@@ -296,299 +212,205 @@ public class InputStream {
                 rangeIndex += 1
                 range = ranges[rangeIndex]
             }
-            
-            if pos >= chunkPos && pos < chunkPos + chunk.count {
+            let chunkChars = chunkUtf16
+            if pos >= chunkPos && pos < chunkPos + chunkChars.count {
                 chunkOff = pos - chunkPos
             } else {
                 chunk = ""
                 chunkOff = 0
             }
-            
             readNext()
         }
-        
         return self
     }
-    
-    /// @internal
-    func read(_ from: Int, _ to: Int) -> String {
-        if from >= chunkPos && to <= chunkPos + chunk.utf16.count {
-            return String(chunk[chunk.index(chunk.startIndex, offsetBy: from - chunkPos)..<chunk.index(chunk.startIndex, offsetBy: to - chunkPos)])
+
+    public func read(from: Int, to: Int) -> String {
+        if from >= chunkPos && to <= chunkPos + chunkUtf16.count {
+            let startIdx = chunk.utf16.index(chunk.startIndex, offsetBy: from - chunkPos)
+            let endIdx = chunk.utf16.index(chunk.startIndex, offsetBy: to - chunkPos)
+            return String(chunk[startIdx..<endIdx])
         }
-        
-        if from >= chunk2Pos && to <= chunk2Pos + chunk2.utf16.count {
-            return String(chunk2[chunk2.index(chunk2.startIndex, offsetBy: from - chunk2Pos)..<chunk2.index(chunk2.startIndex, offsetBy: to - chunk2Pos)])
+        if from >= chunk2Pos && to <= chunk2Pos + chunk2Utf16.count {
+            let startIdx = chunk2.utf16.index(chunk2.startIndex, offsetBy: from - chunk2Pos)
+            let endIdx = chunk2.utf16.index(chunk2.startIndex, offsetBy: to - chunk2Pos)
+            return String(chunk2[startIdx..<endIdx])
         }
-        
         if from >= range.from && to <= range.to {
             return input.read(from: from, to: to)
         }
-        
         var result = ""
         for r in ranges {
-            if r.from >= to {
-                break
-            }
+            if r.from >= to { break }
             if r.to > from {
-                result += input.read(from: max(from, r.from), to: min(to, r.to))
+                result += input.read(from: max(r.from, from), to: min(r.to, to))
             }
         }
-        
         return result
     }
 }
 
-/// Tokenizer interface
-public protocol Tokenizer {
-    /// @internal
-    func token(_ input: InputStream, _ stack: Stack)
-    /// @internal
+public protocol TokenizerProtocol {
+    func token(_ input: InputStream, stack: Stack)
     var contextual: Bool { get }
-    /// @internal
     var fallback: Bool { get }
-    /// @internal
-    var `extend`: Bool { get }
+    var extend: Bool { get }
 }
 
-/// @internal
-public class TokenGroup: Tokenizer {
+public class TokenGroup: TokenizerProtocol {
     public var contextual: Bool = false
     public var fallback: Bool = false
-    public var `extend`: Bool = false
-    
-    let data: [Int]
-    let id: Int
-    
-    init(data: [Int], id: Int) {
+    public var extend: Bool = false
+
+    public let data: [UInt16]
+    public let id: Int
+
+    public init(data: [UInt16], id: Int) {
         self.data = data
         self.id = id
     }
-    
-    public func token(_ input: InputStream, _ stack: Stack) {
-        readToken(data: data, input: input, stack: stack, group: id, precTable: stack.p.parser.data.map { Int($0) }, precOffset: stack.p.parser.tokenPrecTable)
+
+    public func token(_ input: InputStream, stack: Stack) {
+        let parser = stack.p.parser
+        readToken(data, input: input, stack: stack, group: id, precTable: parser.data, precOffset: parser.tokenPrecTable)
     }
 }
 
-/// @hide
-public class LocalTokenGroup: Tokenizer {
+public class LocalTokenGroup: TokenizerProtocol {
     public var contextual: Bool = false
     public var fallback: Bool = false
-    public var `extend`: Bool = false
-    
-    let data: [Int]
-    let precTable: Int
-    let elseToken: Int?
-    let localGroupID: Int
-    
-    init(data: ArrayOrString, precTable: Int, elseToken: Int? = nil, localGroupID: Int = 0) {
+    public var extend: Bool = false
+    public let data: [UInt16]
+    public let precTable: Int
+    public let elseToken: Int?
+
+    public init(data: Any, precTable: Int, elseToken: Int? = nil) {
         self.precTable = precTable
         self.elseToken = elseToken
-        self.data = decodeArray(data)
-        self.localGroupID = localGroupID
+        if let arr = data as? [UInt16] {
+            self.data = arr
+        } else if let str = data as? String {
+            self.data = decodeArray(str)
+        } else {
+            fatalError("LocalTokenGroup data must be [UInt16] or String")
+        }
     }
-    
-    public func token(_ input: InputStream, _ stack: Stack) {
+
+    public func token(_ input: InputStream, stack: Stack) {
         let start = input.pos
         var skipped = 0
-        
         while true {
             let atEof = input.next < 0
             let nextPos = input.resolveOffset(1, assoc: 1)
-            
-            readToken(
-                data: data,
-                input: input,
-                stack: stack,
-                group: 0,
-                precTable: stack.p.parser.data.map { Int($0) },
-                precOffset: precTable
-            )
-            
-            if input.token.value > -1 {
-                break
-            }
-            
-            if elseToken == nil {
-                return
-            }
-            
-            if !atEof {
-                skipped += 1
-            }
-            
-            guard let nextPos = nextPos else {
-                break
-            }
-            _ = input.reset(nextPos, token: input.token)
+            readToken(data, input: input, stack: stack, group: 0, precTable: data, precOffset: precTable)
+            if input.token.value > -1 { break }
+            if elseToken == nil { return }
+            if !atEof { skipped += 1 }
+            if nextPos == nil { break }
+            input.reset(nextPos!, token: input.token)
         }
-        
         if skipped > 0 {
-            _ = input.reset(start, token: input.token)
+            input.reset(start, token: input.token)
             input.acceptToken(elseToken!, endOffset: skipped)
         }
     }
 }
 
-public struct ExternalOptions {
-    /// When set to true, mark this tokenizer as depending on the
-    /// current parse stack, which prevents its result from being cached
-    /// between parser actions at the same positions.
-    var contextual: Bool = false
-    /// By defaults, when a tokenizer returns a token, that prevents
-    /// tokenizers with lower precedence from even running. When
-    /// `fallback` is true, the tokenizer is allowed to run when a
-    /// previous tokenizer returned a token that didn't match any of the
-    /// current state's actions.
-    var fallback: Bool = false
-    /// When set to true, tokenizing will not stop after this tokenizer
-    /// has produced a token. (But it will still fail to reach this one
-    /// if a higher-precedence tokenizer produced a token.)
-    var `extend`: Bool = false
-}
+public class ExternalTokenizer: TokenizerProtocol {
+    public var contextual: Bool
+    public var fallback: Bool
+    public var extend: Bool
+    public let tokenFn: (InputStream, Stack) -> Void
 
-/// `@external tokens` declarations in the grammar should resolve to
-/// an instance of this class.
-public class ExternalTokenizer: Tokenizer {
-    /// @internal
-    public var contextual: Bool = false
-    /// @internal
-    public var fallback: Bool = false
-    /// @internal
-    public var `extend`: Bool = false
-    
-    let _tokenFunc: (InputStream, Stack) -> Void
-    
-    /// Create a tokenizer. The first argument is the function that,
-    /// given an input stream, scans for the types of tokens it
-    /// recognizes at the stream's position, and calls
-    /// [`acceptToken`](#lr.InputStream.acceptToken) when it finds
-    /// one.
-    init(token: @escaping (InputStream, Stack) -> Void, options: ExternalOptions = ExternalOptions()) {
-        self._tokenFunc = token
-        self.contextual = options.contextual
-        self.fallback = options.fallback
-        self.`extend` = options.`extend`
+    public init(
+        _ token: @escaping (InputStream, Stack) -> Void,
+        contextual: Bool = false,
+        fallback: Bool = false,
+        extend: Bool = false
+    ) {
+        self.tokenFn = token
+        self.contextual = contextual
+        self.fallback = fallback
+        self.extend = extend
     }
-    
-    public func token(_ input: InputStream, _ stack: Stack) {
-        _tokenFunc(input, stack)
+
+    public func token(_ input: InputStream, stack: Stack) {
+        tokenFn(input, stack)
     }
 }
 
-// Tokenizer data is stored a big uint16 array containing, for each
-// state:
-//
-//  - A group bitmask, indicating what token groups are reachable from
-//    this state, so that paths that can only lead to tokens not in
-//    any of the current groups can be cut off early.
-//
-//  - The position of the end of the state's sequence of accepting
-//    tokens
-//
-//  - The number of outgoing edges for the state
-//
-//  - The accepting tokens, as (token id, group mask) pairs
-//
-//  - The outgoing edges, as (start character, end character, state
-//    index) triples, with end character being exclusive
-//
-// This function interprets that data, running through a stream as
-// long as new states with the a matching group mask can be reached,
-// and updating `input.token` when it matches a token.
-internal func readToken(
-    data: [Int],
+func readToken(
+    _ data: [UInt16],
     input: InputStream,
     stack: Stack,
     group: Int,
-    precTable: [Int],
+    precTable: [UInt16],
     precOffset: Int
 ) {
     var state = 0
     let groupMask = 1 << group
     let dialect = stack.p.parser.dialect
-    
+
     scan: while true {
-        if (groupMask & data[state]) == 0 {
-            break scan
-        }
-        
-        let accEnd = data[state + 1]
-        
-        // Check whether this state can lead to a token in the current group
-        // Accept tokens in this state, possibly overwriting
-        // lower-precedence / shorter tokens
-        for i in stride(from: state + 3, to: accEnd, by: 2) {
-            if (data[i + 1] & groupMask) != 0 {
-                let term = data[i]
+        if (groupMask & Int(data[state])) == 0 { break }
+        let accEnd = Int(data[state + 1])
+
+        var i = state + 3
+        while i < accEnd {
+            if (Int(data[i + 1]) & groupMask) > 0 {
+                let term = Int(data[i])
                 if dialect.allows(term: term) &&
-                   (input.token.value == -1 ||
-                    input.token.value == term ||
-                    overrides(
-                        token: term,
-                        prev: input.token.value,
-                        tableData: precTable,
-                        tableOffset: precOffset
-                    )) {
+                    (input.token.value == -1 ||
+                     input.token.value == term ||
+                     overrides(term, prev: input.token.value, tableData: precTable, tableOffset: precOffset)) {
                     input.acceptToken(term)
                     break
                 }
             }
+            i += 2
         }
-        
+
         let next = input.next
         var low = 0
-        var high = data[state + 2]
-        
-        // Special case for EOF
-        if input.next < 0 && high > low && data[accEnd + high * 3 - 3] == Seq.end {
-            state = data[accEnd + high * 3 - 1]
-            continue scan
+        var high = Int(data[state + 2])
+
+        if input.next < 0 && high > low {
+            let eofIdx = accEnd + high * 3 - 3
+            if Int(data[eofIdx]) == Seq.End {
+                state = Int(data[eofIdx + 2])
+                continue scan
+            }
         }
-        
-        // Do a binary search on the state's edges
+
         while low < high {
             let mid = (low + high) >> 1
             let index = accEnd + mid + (mid << 1)
-            let from = data[index]
-            let to = data[index + 1] != 0 ? data[index + 1] : 0x10000
-            
-            if next < from {
-                high = mid
-            } else if next >= to {
-                low = mid + 1
-            } else {
-                state = data[index + 2]
+            let from = Int(data[index])
+            let to = Int(data[index + 1]) == 0 ? 0x10000 : Int(data[index + 1])
+            if next < from { high = mid }
+            else if next >= to { low = mid + 1 }
+            else {
+                state = Int(data[index + 2])
                 input.advance()
                 continue scan
             }
         }
-        
-        break scan
+        break
     }
 }
 
-internal func findOffset(_ data: [Int], start: Int, term: Int) -> Int {
-    for i in start..<data.count {
-        if data[i] == Seq.end {
-            return -1
-        }
-        if data[i] == term {
-            return i - start
-        }
+func findOffset(_ data: [UInt16], start: Int, term: Int) -> Int {
+    var i = start
+    while i < data.count {
+        let next = Int(data[i])
+        if next == Seq.End { return -1 }
+        if next == term { return i - start }
+        i += 1
     }
     return -1
 }
 
-internal func overrides(
-    token: Int,
-    prev: Int,
-    tableData: [Int],
-    tableOffset: Int
-) -> Bool {
+func overrides(_ token: Int, prev: Int, tableData: [UInt16], tableOffset: Int) -> Bool {
     let iPrev = findOffset(tableData, start: tableOffset, term: prev)
-    if iPrev < 0 {
-        return true
-    }
-    let iToken = findOffset(tableData, start: tableOffset, term: token)
-    return iToken < iPrev
+    if iPrev < 0 { return true }
+    return findOffset(tableData, start: tableOffset, term: token) < iPrev
 }

@@ -1,559 +1,355 @@
-//
-//  Token.swift
-//  Rezel
-//
-//  Created on 2025-06-11.
-//
-
 import Foundation
+public let MAX_CHAR = 0xffff
 
-public let MAX_CHAR: Int = 0xffff
+public class Edge: CustomStringConvertible {
+    public let from: Int
+    public let to: Int
+    public let target: State
 
-public class TokenBuildState: TokenState {
-    func edge(_ from: Int, _ to: Int, _ target: TokenBuildState) {
-        edges.append(Edge(from: from, to: to, target: target))
+    public init(from: Int, to: Int, target: State) {
+        self.from = from; self.to = to; self.target = target
     }
-    
-    func nullEdge(_ target: TokenBuildState) {
-        edges.append(Edge(from: -1, to: -1, target: target))
-    }
-}
 
-/// Edge between states in the tokenizer automaton
-public class Edge {
-    let from: Int
-    let to: Int
-    var target: TokenState
-    
-    init(from: Int, to: Int, target: TokenState) {
-        self.from = from
-        self.to = to
-        self.target = target
-    }
-    
-    func toString() -> String {
+    public var description: String {
         let label = from < 0 ? "ε" : charFor(from) + (to > from + 1 ? "-\(charFor(to - 1))" : "")
-        return "-> \(target.id)[label=\"\(label)\"]"
+        return "-> \(target.id)[label=\(label)]"
     }
 }
 
-fileprivate func charFor(_ n: Int) -> String {
-    if n > MAX_CHAR {
-        return "∞"
-    } else if n == 10 {
-        return "\\n"
-    } else if n == 13 {
-        return "\\r"
-    } else if n < 32 || (n >= 0xd800 && n < 0xdfff) {
-        return "\\u{\(String(n, radix: 16))}"
-    } else {
-        return String(UnicodeScalar(n)!)
-    }
+func charFor(_ n: Int) -> String {
+    if n > MAX_CHAR { return "∞" }
+    if n == 10 { return "\\n" }
+    if n == 13 { return "\\r" }
+    if n < 32 || (n >= 0xd800 && n < 0xdfff) { return "\\u{\(String(n, radix: 16))}" }
+    return String(UnicodeScalar(n)!)
 }
 
-fileprivate typealias Partition = [Int: [TokenState]]
+nonisolated(unsafe) private var stateIDCounter = 1
 
-fileprivate func unionTerms(_ a: [Term], _ b: [Term]) -> [Term] {
-    var result = a
-    for term in b {
-        if !result.contains(where: { $0 === term }) {
-            result.append(term)
-        }
-    }
-    return result.sorted { $0.id < $1.id }
-}
+public class State: CustomStringConvertible {
+    public var edges: [Edge] = []
+    public let accepting: [Term]
+    public let id: Int
 
-/// Minimize the automaton states
-fileprivate func minimize(_ states: [TokenState], start: TokenState) -> TokenState {
-    var partition: Partition = [:]
-    var byAccepting: [String: [TokenState]] = [:]
-    
-    for state in states {
-        let id = ids(elts: state.accepting)
-        var group = byAccepting[id] ?? []
-        group.append(state)
-        byAccepting[id] = group
-        partition[state.id] = group
-    }
-    
-    while true {
-        var split = false
-        var newPartition: Partition = [:]
-        
-        for state in states {
-            if newPartition[state.id] != nil { continue }
-            
-            let group = partition[state.id]!
-            if group.count == 1 {
-                newPartition[group[0].id] = group
-                continue
-            }
-            
-            var parts: [[TokenState]] = []
-            groupsLoop: for state in group {
-                for idx in parts.indices {
-                    if isEquivalent(a: state, b: parts[idx][0], partition: partition) {
-                        parts[idx].append(state)
-                        continue groupsLoop
-                    }
-                }
-                parts.append([state])
-            }
-            
-            if parts.count > 1 {
-                split = true
-            }
-            
-            for p in parts {
-                for s in p {
-                    newPartition[s.id] = p
-                }
-            }
-        }
-        
-        if !split {
-            return applyMinimization(states: states, start: start, partition: partition)
-        }
-        
-        partition = newPartition
-    }
-}
-
-fileprivate func samePartition(_ a: [TokenState]?, _ b: [TokenState]?) -> Bool {
-    guard let a = a, let b = b else { return false }
-    if a.count != b.count { return false }
-    for i in 0..<a.count {
-        if a[i] !== b[i] { return false }
-    }
-    return true
-}
-
-fileprivate func isEquivalent(a: TokenState, b: TokenState, partition: Partition) -> Bool {
-    if a.edges.count != b.edges.count {
-        return false
-    }
-    
-    for i in 0..<a.edges.count {
-        let eA = a.edges[i]
-        let eB = b.edges[i]
-        
-        if eA.from != eB.from || eA.to != eB.to || !samePartition(partition[eA.target.id], partition[eB.target.id]) {
-            return false
-        }
-    }
-    
-    return true
-}
-
-fileprivate func applyMinimization(states: [TokenState], start: TokenState, partition: Partition) -> TokenState {
-    for state in states {
-        for i in 0..<state.edges.count {
-            let edge = state.edges[i]
-            let target = partition[edge.target.id]![0]
-            if target !== edge.target {
-                state.edges[i] = Edge(from: edge.from, to: edge.to, target: target)
-            }
-        }
-    }
-    
-    return partition[start.id]![0]
-}
-
-fileprivate nonisolated(unsafe) var stateID = 1
-
-/// TokenState in the tokenizer automaton
-public class TokenState {
-    var edges: [Edge] = []
-    let accepting: [Term]
-    let id: Int
-    
-    init(accepting: [Term] = [], id: Int = stateID) {
+    public init(accepting: [Term] = [], id: Int? = nil) {
         self.accepting = accepting
-        self.id = id
-        if id == stateID {
-            stateID += 1
-        }
+        self.id = id ?? stateIDCounter
+        if id == nil { stateIDCounter += 1 }
     }
-    
-    func edge(from: Int, to: Int, target: TokenState) {
+
+    public func edge(_ from: Int, _ to: Int, _ target: State) {
         edges.append(Edge(from: from, to: to, target: target))
     }
-    
-    func nullEdge(target: TokenState) {
-        edge(from: -1, to: -1, target: target)
-    }
-    
-    func compile() -> TokenState {
-        var labeled: [String: TokenState] = [:]
+
+    public func nullEdge(_ target: State) { edge(-1, -1, target) }
+
+    public func compile() -> State {
         var localID = 0
-        
-        let startTokenState = explore(states: closure().sorted { $0.id < $1.id })
-        return minimize(Array(labeled.values), start: startTokenState)
-        
-        func explore(states: [TokenState]) -> TokenState {
-            let allAccepting = states.reduce([Term]()) { (result: [Term], state: TokenState) in
-                return unionTerms(result, state.accepting)
-            }
-            
-            let newTokenState = TokenState(accepting: allAccepting, id: localID)
-            labeled[ids(elts: states)] = newTokenState
+        var labeled: [String: State] = [:]
+        let startState = explore(closure().sorted { $0.id - $1.id < 0 })
+        return minimize(Array(labeled.values), start: startState)
+
+        func explore(_ states: [State]) -> State {
+            let key = ids(states)
+            let newState = State(accepting: states.reduce([] as [Term], { unionObj($0, $1.accepting) }), id: localID)
             localID += 1
-            
+            labeled[key] = newState
             var out: [Edge] = []
-            for state in states {
-                for edge in state.edges {
-                    if edge.from >= 0 {
-                        out.append(edge)
-                    }
-                }
-            }
-            
-            let transitions = mergeEdges(edges: out)
+            for s in states { for e in s.edges { if e.from >= 0 { out.append(e) } } }
+            let transitions = mergeEdges(out)
             for merged in transitions {
                 let targets = merged.targets.sorted { $0.id < $1.id }
-                let targetTokenState = labeled[ids(elts: targets)] ?? explore(states: targets)
-                newTokenState.edge(from: merged.from, to: merged.to, target: targetTokenState)
-            }
-            
-            return newTokenState
-        }
-    }
-    
-    func closure() -> [TokenState] {
-        var result: [TokenState] = []
-        var seen: Set<Int> = []
-        
-        func explore(_ state: TokenState) {
-            if seen.contains(state.id) { return }
-            seen.insert(state.id)
-            
-            let hasNonEpsilon = state.edges.contains { $0.from >= 0 }
-            let hasUniqueAccepting = !state.accepting.isEmpty && !state.edges.contains { edge in
-                sameSet(a: state.accepting, b: edge.target.accepting)
-            }
-            
-            if hasNonEpsilon || hasUniqueAccepting {
-                result.append(state)
-            }
-            
-            for edge in state.edges {
-                if edge.from < 0 {
-                    explore(edge.target)
+                let targetKey = ids(targets)
+                if let existing = labeled[targetKey] {
+                    newState.edge(merged.from, merged.to, existing)
+                } else {
+                    newState.edge(merged.from, merged.to, explore(targets))
                 }
             }
+            return newState
         }
-        
+    }
+
+    public func closure() -> [State] {
+        var result: [State] = []
+        var seen: Set<Int> = []
+        func explore(_ state: State) {
+            if seen.contains(state.id) { return }
+            seen.insert(state.id)
+            if state.edges.contains(where: { $0.from >= 0 }) ||
+                (!state.accepting.isEmpty && !state.edges.contains(where: { sameSetObjToken(state.accepting, $0.target.accepting) })) {
+                result.append(state)
+            }
+            for e in state.edges { if e.from < 0 { explore(e.target) } }
+        }
         explore(self)
         return result
     }
-    
-    func findConflicts(occurTogether: (Term, Term) -> Bool) -> [Conflict] {
-        var conflicts: [Conflict] = []
-        let cycleTerms = cycleTerms()
-        
+
+    public func findConflicts(_ occurTogether: @escaping (Term, Term) -> Bool) -> [TokenConflict] {
+        var conflicts: [TokenConflict] = []
+        let cycleTerms = self.cycleTerms()
+
         func add(_ a: Term, _ b: Term, _ soft: Int, _ aEdges: [Edge], _ bEdges: [Edge]?) {
-            var a = a
-            var b = b
-            var soft = soft
-            
-            if a.id < b.id {
-                let temp = a
-                a = b
-                b = temp
-                soft = -soft
-            }
-            
-            if let found = conflicts.first(where: { $0.a.id == a.id && $0.b.id == b.id }) {
-                if found.soft != soft {
-                    found.soft = 0
-                }
+            var a = a, b = b, soft = soft
+            if a.id < b.id { swap(&a, &b); soft = -soft }
+            if let found = conflicts.first(where: { $0.a === a && $0.b === b }) {
+                if found.soft != soft { found.soft = 0 }
             } else {
-                conflicts.append(Conflict(a: a, b: b, soft: soft, exampleA: exampleFromEdges(aEdges), exampleB: bEdges != nil ? exampleFromEdges(bEdges!) : nil))
+                conflicts.append(TokenConflict(a: a, b: b, soft: soft,
+                    exampleA: exampleFromEdges(aEdges), exampleB: bEdges.map { exampleFromEdges($0) }))
             }
         }
-        
-        reachable { (state, edges) in
+
+        reachable { state, edges in
             if state.accepting.isEmpty { return }
-            
             for i in 0..<state.accepting.count {
-                for j in (i + 1)..<state.accepting.count {
+                for j in (i+1)..<state.accepting.count {
                     add(state.accepting[i], state.accepting[j], 0, edges, nil)
                 }
             }
-            
-            state.reachable { (s, es) in
+            state.reachable { s, es in
                 if s !== state {
                     for term in s.accepting {
-                        let hasCycle = cycleTerms.contains { $0.id == term.id }
+                        let hasCycle = cycleTerms.contains(where: { $0 === term })
                         for orig in state.accepting {
-                            if term.id != orig.id {
-                                let softConflict = hasCycle || cycleTerms.contains { $0.id == orig.id } || !occurTogether(term, orig) ? 0 : 1
-                                add(term, orig, softConflict, edges, edges + es)
+                            if term !== orig {
+                                add(term, orig,
+                                    hasCycle || cycleTerms.contains(where: { $0 === orig }) || !occurTogether(term, orig) ? 0 : 1,
+                                    edges, edges + es)
                             }
                         }
                     }
                 }
             }
         }
-        
         return conflicts
     }
-    
-    func cycleTerms() -> [Term] {
-        var work: [TokenState] = []
-        reachable { (state, edges) in
-            for edge in state.edges {
-                work.append(state)
-                work.append(edge.target)
-            }
+
+    public func cycleTerms() -> [Term] {
+        var work: [State] = []
+        reachable { state, _ in
+            for e in state.edges { work.append(state); work.append(e.target) }
         }
-        
-        var table: [Int: [TokenState]] = [:]
-        var haveCycle: [TokenState] = []
-        
+
+        var table: [ObjectIdentifier: [State]] = [:]
+        var haveCycle: [State] = []
         var i = 0
         while i < work.count {
-            let from = work[i]
-            i += 1
-            let to = work[i]
-            i += 1
-            
-            var entry = table[from.id] ?? []
+            let from = work[i]; i += 1
+            let to = work[i]; i += 1
+            let key = ObjectIdentifier(from)
+            var entry = table[key] ?? []
             if entry.contains(where: { $0 === to }) { continue }
-            
             if from === to {
-                if !haveCycle.contains(where: { $0 === from }) {
-                    haveCycle.append(from)
-                }
+                if !haveCycle.contains(where: { $0 === from }) { haveCycle.append(from) }
             } else {
-                for next in entry {
-                    work.append(from)
-                    work.append(next)
-                }
+                for next in entry { work.append(from); work.append(next) }
                 entry.append(to)
             }
-            table[from.id] = entry
+            table[key] = entry
         }
-        
+
         var result: [Term] = []
         for state in haveCycle {
             for term in state.accepting {
-                if !result.contains(where: { $0.id == term.id }) {
-                    result.append(term)
-                }
+                if !result.contains(where: { $0 === term }) { result.append(term) }
             }
         }
-        
         return result
     }
-    
-    func reachable(_ f: (TokenState, [Edge]) -> Void) {
-        var seen: [TokenState] = []
+
+    public func reachable(_ f: (State, [Edge]) -> Void) {
+        var seen: [State] = []
         var edges: [Edge] = []
-        
-        func explore(_ s: TokenState) {
+        func explore(_ s: State) {
             f(s, edges)
             seen.append(s)
-            
-            for edge in s.edges {
-                if !seen.contains(where: { $0 === edge.target }) {
-                    edges.append(edge)
-                    explore(edge.target)
+            for e in s.edges {
+                if !seen.contains(where: { $0 === e.target }) {
+                    edges.append(e)
+                    explore(e.target)
                     edges.removeLast()
                 }
             }
         }
-        
         explore(self)
     }
-    
-    func toString() -> String {
+
+    public var description: String {
         var out = "digraph {\n"
-        reachable { (state, _) in
+        reachable { state, _ in
             if !state.accepting.isEmpty {
-                out += "  \(state.id) [label=\"\(state.accepting.map { $0.name }.joined())\"];\n"
+                out += "  \(state.id) [label=\"\(state.accepting.map { $0.name }.joined(separator: ","))\"];\n"
             }
-            for edge in state.edges {
-                out += "  \(state.id) \(edge.toString());\n"
-            }
+            for e in state.edges { out += "  \(state.id) \(e);\n" }
         }
         return out + "}"
     }
-    
-    func toArray(groupMasks: [Int: Int], precedence: [Int]) -> [UInt16] {
-        var offsets: [Int: Int] = [:]
+
+    public func toArray(_ groupMasks: [Int: Int], _ precedence: [Int]) throws -> [UInt16] {
+        var offsets: [Int] = Array(repeating: 0, count: 1000)
         var data: [Int] = []
-        
-        reachable { (state, _) in
+        reachable { state, _ in
             let start = data.count
             let acceptEnd = start + 3 + state.accepting.count * 2
+            while offsets.count <= state.id { offsets.append(0) }
             offsets[state.id] = start
-            
-            data.append(state.stateMask(groupMasks: groupMasks))
+            data.append(stateMask(groupMasks))
             data.append(acceptEnd)
             data.append(state.edges.count)
-            
-            let sortedAccepting = state.accepting.sorted { a, b in
-                let aIndex = precedence.firstIndex(of: a.id) ?? precedence.count
-                let bIndex = precedence.firstIndex(of: b.id) ?? precedence.count
-                return aIndex < bIndex
-            }
-            
-            for term in sortedAccepting {
-                data.append(term.id)
-                data.append(groupMasks[term.id] ?? 0xffff)
-            }
-            
-            for edge in state.edges.sorted(by: { $0.from < $1.from }) {
-                data.append(edge.from)
-                data.append(edge.to)
-                data.append(-edge.target.id - 1)
-            }
+            let sorted = state.accepting.sorted { precedence.firstIndex(of: $0.id) ?? 0 < precedence.firstIndex(of: $1.id) ?? 0 }
+            for term in sorted { data.append(term.id); data.append(groupMasks[term.id] ?? 0xffff) }
+            for e in state.edges { data.append(e.from); data.append(e.to); data.append(-e.target.id - 1) }
         }
-        
-        // Replace negative numbers with resolved state offsets
-        for i in 0..<data.count {
-            if data[i] < 0 {
-                data[i] = offsets[-data[i] - 1]!
-            }
-        }
-        
-        if data.count > (1 << 16) {
-            fatalError("Tokenizer tables too big to represent with 16-bit offsets.")
-        }
-        
+        for i in 0..<data.count { if data[i] < 0 { data[i] = offsets[-data[i] - 1] } }
+        if data.count > (1 << 16) { throw GenError("Tokenizer tables too big to represent with 16-bit offsets.") }
         return data.map { UInt16(truncatingIfNeeded: $0) }
     }
-    
-    func stateMask(groupMasks: [Int: Int]) -> Int {
+
+    public func stateMask(_ groupMasks: [Int: Int]) -> Int {
         var mask = 0
-        reachable { (state, _) in
-            for term in state.accepting {
-                mask |= groupMasks[term.id] ?? 0xffff
-            }
+        reachable { state, _ in
+            for term in state.accepting { mask |= groupMasks[term.id] ?? 0xffff }
         }
         return mask
     }
 }
 
-/// Conflict between two tokens
-public class Conflict {
-    let a: Term
-    let b: Term
-    var soft: Int
-    let exampleA: String
-    let exampleB: String?
-    
-    init(a: Term, b: Term, soft: Int, exampleA: String, exampleB: String?) {
-        self.a = a
-        self.b = b
-        self.soft = soft
-        self.exampleA = exampleA
-        self.exampleB = exampleB
+public class TokenConflict {
+    public let a: Term
+    public let b: Term
+    public var soft: Int
+    public let exampleA: String
+    public let exampleB: String?
+
+    public init(a: Term, b: Term, soft: Int, exampleA: String, exampleB: String? = nil) {
+        self.a = a; self.b = b; self.soft = soft; self.exampleA = exampleA; self.exampleB = exampleB
     }
 }
 
-fileprivate func exampleFromEdges(_ edges: [Edge]) -> String {
-    return edges.map { String(UnicodeScalar($0.from)!) }.joined()
+func exampleFromEdges(_ edges: [Edge]) -> String {
+    var str = ""
+    for e in edges { if e.from >= 0 { str += String(UnicodeScalar(e.from)!) } }
+    return str
 }
 
-fileprivate func ids(elts: [Term]) -> String {
-    return elts.map { String($0.id) }.joined(separator: "-")
+func ids(_ elts: [State]) -> String {
+    elts.map { "\($0.id)" }.joined(separator: "-")
 }
 
-fileprivate func ids(elts: [TokenState]) -> String {
-    return elts.map { String($0.id) }.joined(separator: "-")
+func tokenSameSet<T: Equatable>(_ a: [T], _ b: [T]) -> Bool {
+    a.count == b.count && zip(a, b).allSatisfy { $0.0 == $0.1 }
 }
 
-fileprivate func sameSet<T: Equatable>(a: [T], b: [T]) -> Bool {
-    if a.count != b.count {
-        return false
-    }
-    for i in 0..<a.count {
-        if a[i] != b[i] {
-            return false
-        }
-    }
-    return true
-}
-
-fileprivate func sameSet(a: [Term], b: [Term]) -> Bool {
-    if a.count != b.count {
-        return false
-    }
-    for i in 0..<a.count {
-        if a[i] !== b[i] {
-            return false
-        }
-    }
-    return true
-}
-
-/// Merged edge with multiple target states
-fileprivate class MergedEdge {
-    let from: Int
-    let to: Int
-    let targets: [TokenState]
-    
-    init(from: Int, to: Int, targets: [TokenState]) {
-        self.from = from
-        self.to = to
-        self.targets = targets
+class MergedEdge {
+    let from: Int, to: Int
+    let targets: [State]
+    init(from: Int, to: Int, targets: [State]) {
+        self.from = from; self.to = to; self.targets = targets
     }
 }
 
-/// Merge multiple edges into mutually exclusive ranges
-fileprivate func mergeEdges(edges: [Edge]) -> [MergedEdge] {
+func mergeEdges(_ edges: [Edge]) -> [MergedEdge] {
     var separate: [Int] = []
     var result: [MergedEdge] = []
-    
-    for edge in edges {
-        if !separate.contains(edge.from) {
-            separate.append(edge.from)
-        }
-        if !separate.contains(edge.to) {
-            separate.append(edge.to)
-        }
+    for e in edges {
+        if !separate.contains(e.from) { separate.append(e.from) }
+        if !separate.contains(e.to) { separate.append(e.to) }
     }
-    
     separate.sort()
-    
     if separate.count > 1 {
         for i in 1..<separate.count {
-            let from = separate[i - 1]
-            let to = separate[i]
-            var found: [TokenState] = []
-            
-            for edge in edges {
-                if edge.to > from && edge.from < to {
-                    for target in edge.target.closure() {
-                        if !found.contains(where: { $0 === target }) {
-                            found.append(target)
-                        }
-                    }
+            let from = separate[i - 1], to = separate[i]
+            var found: [State] = []
+            for e in edges {
+                if e.to > from && e.from < to {
+                    for target in e.target.closure() { if !found.contains(where: { $0 === target }) { found.append(target) } }
                 }
             }
-            
-            if !found.isEmpty {
-                result.append(MergedEdge(from: from, to: to, targets: found))
-            }
+            if !found.isEmpty { result.append(MergedEdge(from: from, to: to, targets: found)) }
         }
     }
-    
-    let eof = edges.filter { $0.from == Seq.end && $0.to == Seq.end }
+    let eof = edges.filter { $0.from == Seq.End && $0.to == Seq.End }
     if !eof.isEmpty {
-        var found: [TokenState] = []
-        for edge in eof {
-            for target in edge.target.closure() {
-                if !found.contains(where: { $0 === target }) {
-                    found.append(target)
+        var found: [State] = []
+        for e in eof { for target in e.target.closure() { if !found.contains(where: { $0 === target }) { found.append(target) } } }
+        if !found.isEmpty { result.append(MergedEdge(from: Seq.End, to: Seq.End, targets: found)) }
+    }
+    return result
+}
+
+func minimize(_ states: [State], start: State) -> State {
+    var partition: [Int: [State]] = [:]
+    var byAccepting: [String: [State]] = [:]
+    for state in states {
+        let id = state.accepting.map { $0.id }.sorted().map { "\($0)" }.joined(separator: ",")
+        let key = id
+        if byAccepting[key] == nil { byAccepting[key] = [] }
+        byAccepting[key]!.append(state)
+        partition[state.id] = byAccepting[key]
+    }
+
+    while true {
+        var split = false
+        var newPartition: [Int: [State]] = [:]
+        for state in states {
+            if newPartition[state.id] != nil { continue }
+            guard let group = partition[state.id] else { continue }
+            if group.count == 1 {
+                newPartition[group[0].id] = group
+                continue
+            }
+            var parts: [[State]] = []
+            for s in group {
+                if let idx = parts.firstIndex(where: { isEquivalent(s, $0[0], partition) }) {
+                    parts[idx].append(s)
+                } else {
+                    parts.append([s])
                 }
             }
+            if parts.count > 1 { split = true }
+            for p in parts { for s in p { newPartition[s.id] = p } }
         }
-        if !found.isEmpty {
-            result.append(MergedEdge(from: Seq.end, to: Seq.end, targets: found))
+        if !split { return applyMinimization(states, start: start, partition: partition) }
+        partition = newPartition
+    }
+}
+
+func isEquivalent(_ a: State, _ b: State, _ partition: [Int: [State]]) -> Bool {
+    if a.edges.count != b.edges.count { return false }
+    for i in 0..<a.edges.count {
+        let eA = a.edges[i], eB = b.edges[i]
+        if eA.from != eB.from || eA.to != eB.to { return false }
+        let gA = partition[eA.target.id]
+        let gB = partition[eB.target.id]
+        if let gA = gA, let gB = gB, gA[0].id == gB[0].id { continue }
+        if gA == nil && gB == nil { continue }
+        return false
+    }
+    return true
+}
+
+func applyMinimization(_ states: [State], start: State, partition: [Int: [State]]) -> State {
+    for state in states {
+        for i in 0..<state.edges.count {
+            let e = state.edges[i]
+            guard let target = partition[e.target.id]?[0] else { continue }
+            if target !== e.target { state.edges[i] = Edge(from: e.from, to: e.to, target: target) }
         }
     }
-    
+    return partition[start.id]![0]
+}
+
+func unionObj(_ a: [Term], _ b: [Term]) -> [Term] {
+    if a.isEmpty { return b }
+    var result = a
+    for v in b { if !result.contains(where: { $0 === v }) { result.append(v) } }
     return result
+}
+
+func sameSetObjToken(_ a: [Term], _ b: [Term]) -> Bool {
+    if a.count != b.count { return false }
+    for i in 0..<a.count { if a[i] !== b[i] { return false } }
+    return true
 }

@@ -1,280 +1,2161 @@
 import Foundation
 
-public class Parts {
-    public let terms: [Term]
-    public let conflicts: [Conflicts]?
-    
-    public init(terms: [Term], conflicts: [Conflicts]?) {
-        self.terms = terms
-        self.conflicts = conflicts
-    }
-    
-    public func concat(_ other: Parts) -> Parts {
-        if self.terms.isEmpty && (self.conflicts == nil || self.conflicts!.isEmpty) { return other }
-        if other.terms.isEmpty && (other.conflicts == nil || other.conflicts!.isEmpty) { return self }
-        var newConflicts: [Conflicts]? = nil
-        if self.conflicts != nil || other.conflicts != nil {
-            let selfC = self.ensureConflicts()
-            let otherC = other.ensureConflicts()
-            newConflicts = selfC
-            if !newConflicts!.isEmpty {
-                newConflicts![newConflicts!.count - 1] = newConflicts![newConflicts!.count - 1].join(otherC[0])
-            }
-            if otherC.count > 1 {
-                for i in 1..<otherC.count {
-                    newConflicts!.append(otherC[i])
-                }
-            }
-        }
-        return Parts(terms: self.terms + other.terms, conflicts: newConflicts)
-    }
-    
-    public func withConflicts(_ pos: Int, _ conflicts: Conflicts) -> Parts {
-        if conflicts === Conflicts.none { return self }
-        var array = ensureConflicts()
-        if pos < array.count {
-            array[pos] = array[pos].join(conflicts)
-        }
-        return Parts(terms: terms, conflicts: array)
-    }
-    
-    public func ensureConflicts() -> [Conflicts] {
-        if let c = conflicts { return c }
-        return Array(repeating: Conflicts.none, count: terms.count + 1)
-    }
-    
-    public static nonisolated(unsafe) let none = Parts(terms: [], conflicts: nil)
-}
-
-public func p(_ terms: Term...) -> Parts {
-    return Parts(terms: terms, conflicts: nil)
-}
-
-public class BuiltRule {
-    public let id: String
-    public let args: [Expression]
-    public let term: Term
-    
-    public init(id: String, args: [Expression], term: Term) {
-        self.id = id
-        self.args = args
-        self.term = term
-    }
-    
-    public func matches(_ expr: NameExpression) -> Bool {
-        return id == expr.id.name && exprsEq(expr.args, args)
-    }
-    
-    public func matchesRepeat(_ expr: RepeatExpression) -> Bool {
-        return id == "+" && exprEq(expr.expr, args[0])
-    }
-}
+// MARK: - BuildOptions
 
 public struct BuildOptions {
-    let fileName: String?
-    let warn: ((String) -> Void)?
-    let includeNames: Bool
-    let moduleStyle: String
-    let typeScript: Bool
-    let exportName: String?
-    let externalTokenizer: ((String, [String: Int]) -> ExternalTokenizer)?
-    let externalPropSource: ((String) -> NodePropSource)?
-    let externalSpecializer: ((String, [String: Int]) -> (String, Stack) -> Int)?
-    let externalProp: ((String) -> NodeProp<Any>)?
-    let contextTracker: Any?
-    
+    public var fileName: String?
+    public var warn: ((String) -> Void)?
+    public var externalTokenizer: ((String, [String: Int]) -> TokenizerProtocol)?
+    public var externalSpecializer: ((String, [String: Int]) -> (String, Stack) -> Int)?
+    public var externalPropSource: ((String) -> NodePropSource)?
+    public var externalProp: ((String) -> NodePropBase)?
+    public var contextTracker: ContextTracker?
+
     public init(
         fileName: String? = nil,
         warn: ((String) -> Void)? = nil,
-        includeNames: Bool = false,
-        moduleStyle: String = "es",
-        typeScript: Bool = false,
-        exportName: String? = nil,
-        externalTokenizer: ((String, [String: Int]) -> ExternalTokenizer)? = nil,
-        externalPropSource: ((String) -> NodePropSource)? = nil,
+        externalTokenizer: ((String, [String: Int]) -> TokenizerProtocol)? = nil,
         externalSpecializer: ((String, [String: Int]) -> (String, Stack) -> Int)? = nil,
-        externalProp: ((String) -> NodeProp<Any>)? = nil,
-        contextTracker: Any? = nil
+        externalPropSource: ((String) -> NodePropSource)? = nil,
+        externalProp: ((String) -> NodePropBase)? = nil,
+        contextTracker: ContextTracker? = nil
     ) {
         self.fileName = fileName
         self.warn = warn
-        self.includeNames = includeNames
-        self.moduleStyle = moduleStyle
-        self.typeScript = typeScript
-        self.exportName = exportName
         self.externalTokenizer = externalTokenizer
-        self.externalPropSource = externalPropSource
         self.externalSpecializer = externalSpecializer
+        self.externalPropSource = externalPropSource
         self.externalProp = externalProp
         self.contextTracker = contextTracker
     }
 }
 
-public struct SkipInfo {
-    let skip: [Term]
-    let rule: Term?
-    let startTokens: [Term]
-    let id: Int
+// MARK: - Parts
+
+class Parts {
+    let terms: [Term]
+    let conflicts: [Conflicts]?
+
+    init(terms: [Term], conflicts: [Conflicts]?) {
+        self.terms = terms
+        self.conflicts = conflicts
+    }
+
+    func concat(_ other: Parts) -> Parts {
+        if self === Parts.none { return other }
+        if other === Parts.none { return self }
+        var mergedConflicts: [Conflicts]? = nil
+        if self.conflicts != nil || other.conflicts != nil {
+            var c = self.conflicts ?? self.ensureConflicts()
+            let oc = other.ensureConflicts()
+            c[c.count - 1] = c[c.count - 1].join(oc[0])
+            for i in 1..<oc.count { c.append(oc[i]) }
+            mergedConflicts = c
+        }
+        return Parts(terms: self.terms + other.terms, conflicts: mergedConflicts)
+    }
+
+    func withConflicts(_ pos: Int, _ conflicts: Conflicts) -> Parts {
+        if conflicts === Conflicts.none { return self }
+        var array = self.conflicts ?? ensureConflicts()
+        array[pos] = array[pos].join(conflicts)
+        return Parts(terms: self.terms, conflicts: array)
+    }
+
+    func ensureConflicts() -> [Conflicts] {
+        if let c = self.conflicts { return c }
+        return (0...terms.count).map { _ in Conflicts.none }
+    }
+
+    nonisolated(unsafe) static let none = Parts(terms: [], conflicts: nil)
 }
 
-public struct SharedActions {
-    let actions: [Any]
+func p(_ terms: Term...) -> Parts {
+    return Parts(terms: terms, conflicts: nil)
+}
+
+// MARK: - BuiltRule
+
+class BuiltRule {
+    let id: String
+    let args: [Expression]
+    let term: Term
+
+    init(id: String, args: [Expression], term: Term) {
+        self.id = id
+        self.args = args
+        self.term = term
+    }
+
+    func matches(_ expr: NameExpression) -> Bool {
+        return id == expr.id.name && exprsEq(expr.args, args)
+    }
+
+    func matchesRepeat(_ expr: RepeatExpression) -> Bool {
+        return id == "+" && exprEq(expr.expr, args[0])
+    }
+}
+
+// MARK: - SkipInfo
+
+struct SkipInfo {
+    var skip: [Term]
+    var rule: Term?
+    var startTokens: [Term]
+    var id: Int
+}
+
+// MARK: - Constants
+
+private let minSharedActions = 5
+private let ASTRAL_CODE = 0x10000
+private let GAP_START = 0xd800
+private let GAP_END = 0xe000
+private let MAX_CODE = 0x10ffff
+private let LOW_SURR_B = 0xdc00
+private let HIGH_SURR_B = 0xdfff
+
+// MARK: - SharedActions
+
+struct SharedActions {
+    let actions: [ActionItem]
     let addr: Int
 }
 
-let MinSharedActions = 5
+// MARK: - DataBuilder
 
 class DataBuilder {
     var data: [Int] = []
-    
-    func storeArray(_ data: [Int]) -> Int {
-        if let found = findArray(self.data, data) {
-            return found
-        }
-        let pos = self.data.count
-        self.data.append(contentsOf: data)
+
+    func storeArray(_ newData: [Int]) -> Int {
+        let found = findArray(data, newData)
+        if found > -1 { return found }
+        let pos = data.count
+        data.append(contentsOf: newData)
         return pos
     }
-    
+
     func finish() -> [UInt16] {
-        return data.map { UInt16($0) }
+        return data.map { UInt16(truncatingIfNeeded: $0) }
     }
 }
 
-func findArray(_ data: [Int], _ value: [Int]) -> Int? {
-    var i = 0
-    search: while true {
-        if let next = data[i...].firstIndex(of: value[0]) {
-            if next + value.count > data.count { break }
-            for j in 1..<value.count {
-                if value[j] != data[next + j] {
-                    i = next + 1
-                    continue search
+// MARK: - TokenOrigin
+
+struct TokenOrigin {
+    var spec: Term?
+    var external: AnyObject?
+    var group: LocalTokenSet?
+}
+
+// MARK: - TokenizerSpecProtocol
+
+protocol TokenizerSpecProtocol: AnyObject {
+    var groupID: Int? { get }
+    func create() -> Any
+}
+
+// MARK: - BuildTokenGroup
+
+class BuildTokenGroup: TokenizerSpecProtocol {
+    var tokens: [Term]
+    let groupID: Int?
+
+    init(tokens: [Term], groupID: Int) {
+        self.tokens = tokens
+        self.groupID = groupID
+    }
+
+    func create() -> Any { return groupID ?? 0 }
+}
+
+// MARK: - LocalTokenGroupSpec
+
+class LocalTokenGroupSpec: TokenizerSpecProtocol {
+    let groupID: Int?
+    private let fullData: [UInt16]
+    private let precOffset: Int
+    private let elseToken: Int?
+
+    init(groupID: Int, fullData: [UInt16], precOffset: Int, elseToken: Int?) {
+        self.groupID = groupID
+        self.fullData = fullData
+        self.precOffset = precOffset
+        self.elseToken = elseToken
+    }
+
+    func create() -> Any {
+        return LocalTokenGroup(data: fullData, precTable: precOffset, elseToken: elseToken)
+    }
+}
+
+// MARK: - FinishStateContext
+
+class FinishStateContext {
+    var sharedActions: [SharedActions] = []
+    let tokenizers: [TokenizerSpecProtocol]
+    let data: DataBuilder
+    var stateArray: [UInt32]
+    let skipData: [Int]
+    let skipInfo: [SkipInfo]
+    let states: [AutState]
+    let builder: Builder
+
+    init(
+        tokenizers: [TokenizerSpecProtocol],
+        data: DataBuilder,
+        stateArray: [UInt32],
+        skipData: [Int],
+        skipInfo: [SkipInfo],
+        states: [AutState],
+        builder: Builder
+    ) {
+        self.tokenizers = tokenizers
+        self.data = data
+        self.stateArray = stateArray
+        self.skipData = skipData
+        self.skipInfo = skipInfo
+        self.states = states
+        self.builder = builder
+    }
+
+    func findSharedActions(_ state: AutState) -> SharedActions? {
+        if state.actions.count < minSharedActions { return nil }
+        var found: SharedActions? = nil
+        for shared in sharedActions {
+            if (found == nil || shared.actions.count > found!.actions.count) &&
+                shared.actions.allSatisfy({ sa in state.actions.contains(where: { b in actionEq(sa, b) }) }) {
+                found = shared
+            }
+        }
+        if let found = found { return found }
+        var max: [ActionItem]? = nil
+        var scratch: [ActionItem] = []
+        for i in (state.id + 1)..<states.count {
+            let other = states[i]
+            var fill = 0
+            if other.defaultReduce != nil || other.actions.count < minSharedActions { continue }
+            for a in state.actions {
+                for b in other.actions {
+                    if actionEq(a, b) {
+                        if fill < scratch.count {
+                            scratch[fill] = a
+                        } else {
+                            scratch.append(a)
+                        }
+                        fill += 1
+                    }
                 }
             }
-            return next
+            if fill >= minSharedActions && (max == nil || max!.count < fill) {
+                max = Array(scratch.prefix(fill))
+                scratch = []
+            }
         }
-        break
+        guard let maxActions = max else { return nil }
+        let result = SharedActions(actions: maxActions, addr: storeActions(maxActions, -1, shared: nil))
+        sharedActions.append(result)
+        return result
+    }
+
+    func storeActions(_ actions: [ActionItem], _ skipReduce: Int, shared: SharedActions?) -> Int {
+        if skipReduce < 0 && shared != nil && shared!.actions.count == actions.count { return shared!.addr }
+        var d: [Int] = []
+        for action in actions {
+            if let shared = shared, shared.actions.contains(where: { actionEq($0, action) }) { continue }
+            if let shift = action as? Shift {
+                d.append(shift.term.id)
+                d.append(shift.target.id)
+                d.append(0)
+            } else if let reduce = action as? Reduce {
+                let code = reduceAction(reduce.rule, skipInfo)
+                if code != skipReduce {
+                    d.append(reduce.term.id)
+                    d.append(code & Action.ValueMask)
+                    d.append(code >> 16)
+                }
+            }
+        }
+        d.append(Seq.End)
+        if skipReduce > -1 {
+            d.append(Seq.Other)
+            d.append(skipReduce & Action.ValueMask)
+            d.append(skipReduce >> 16)
+        } else if let shared = shared {
+            d.append(Seq.Next)
+            d.append(shared.addr & 0xffff)
+            d.append(shared.addr >> 16)
+        } else {
+            d.append(Seq.Done)
+        }
+        return data.storeArray(d)
+    }
+
+    func finish(_ state: AutState, _ isSkip: Bool, _ forcedReduce: Int) {
+        let b = builder
+        let skipID = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
+        let skipTable = skipData[skipID]
+        let skipTerms = skipInfo[skipID].startTokens
+
+        let defaultReduce = state.defaultReduce != nil ? reduceAction(state.defaultReduce!, skipInfo) : 0
+        var flags: UInt32 = isSkip ? UInt32(StateFlag.Skipped) : 0
+
+        var skipReduce = -1
+        var shared: SharedActions? = nil
+        if defaultReduce == 0 {
+            if isSkip {
+                for action in state.actions {
+                    if let reduce = action as? Reduce, reduce.term.eof {
+                        skipReduce = reduceAction(reduce.rule, skipInfo)
+                    }
+                }
+            }
+            if skipReduce < 0 { shared = findSharedActions(state) }
+        }
+
+        if state.set.contains(where: { $0.rule.name.top && $0.pos == $0.rule.parts.count }) {
+            flags |= UInt32(StateFlag.Accepting)
+        }
+
+        var externalList: [TokenizerSpecProtocol] = []
+        for i in 0..<(state.actions.count + skipTerms.count) {
+            let term: Term
+            if i < state.actions.count {
+                term = actionTerm(state.actions[i])
+            } else {
+                term = skipTerms[i - state.actions.count]
+            }
+            var t = term
+            while true {
+                if let orig = b.tokenOrigins[t.name], let spec = orig.spec {
+                    t = spec
+                    continue
+                }
+                if let orig = b.tokenOrigins[t.name], let ext = orig.external as? ExternalTokenSet {
+                    if !externalList.contains(where: { $0 === ext }) { externalList.append(ext) }
+                }
+                break
+            }
+        }
+
+        var tokenizerMask: UInt32 = 0
+        for i in 0..<tokenizers.count {
+            let tok = tokenizers[i]
+            if externalList.contains(where: { $0 === tok }) || tok.groupID == state.tokenGroup {
+                tokenizerMask |= UInt32(1 << i)
+            }
+        }
+
+        let base = state.id * ParseState.Size
+        stateArray[base + ParseState.Flags] = flags
+        stateArray[base + ParseState.Actions] = UInt32(storeActions(
+            defaultReduce != 0 ? [] : state.actions, skipReduce, shared: shared
+        ))
+        stateArray[base + ParseState.Skip] = UInt32(skipTable)
+        stateArray[base + ParseState.TokenizerMask] = tokenizerMask
+        stateArray[base + ParseState.DefaultReduce] = UInt32(defaultReduce)
+        stateArray[base + ParseState.ForcedReduce] = UInt32(forcedReduce)
+    }
+}
+
+// MARK: - TokenArg
+
+class TokenArg {
+    let name: String
+    let expr: Expression
+    let scope: [TokenArg]
+
+    init(name: String, expr: Expression, scope: [TokenArg]) {
+        self.name = name
+        self.expr = expr
+        self.scope = scope
+    }
+}
+
+// MARK: - BuildingRule
+
+class BuildingRule {
+    let name: String
+    let start: State
+    let to: State
+    let args: [Expression]
+
+    init(name: String, start: State, to: State, args: [Expression]) {
+        self.name = name
+        self.start = start
+        self.to = to
+        self.args = args
+    }
+}
+
+// MARK: - TokenSet
+
+class TokenSet {
+    var startState: State = State()
+    var built: [BuiltRule] = []
+    var building: [BuildingRule] = []
+    var rules: [RuleDeclaration]
+    var byDialect: [Int: [Term]] = [:]
+    var precedenceRelations: [(term: Term, after: [Term])] = []
+
+    let b: Builder
+    let ast: TokenDeclaration?
+
+    init(b: Builder, ast: TokenDeclaration?) {
+        self.b = b
+        self.ast = ast
+        self.rules = ast?.rules ?? []
+        for rule in self.rules { b.unique(rule.id) }
+    }
+
+    func getToken(_ expr: NameExpression) -> Term? {
+        for builtRule in built where builtRule.matches(expr) { return builtRule.term }
+        let name = expr.id.name
+        guard let rule = rules.first(where: { $0.id.name == name }) else { return nil }
+        let info = b.nodeInfo(
+            rule.props,
+            "d",
+            name,
+            expr.args,
+            rule.params.count != expr.args.count ? [] : rule.params
+        )
+        let term = b.makeTerminal(expr.description, info.name, info.props)
+        if let dialect = info.dialect {
+            if byDialect[dialect] == nil { byDialect[dialect] = [] }
+            byDialect[dialect]!.append(term)
+        }
+        if (term.nodeType || info.exported != nil) && rule.params.count == 0 {
+            if !term.nodeType { term.preserve = true }
+            b.namedTerms[info.exported ?? name] = term
+        }
+        buildRule(rule, expr, startState, State(accepting: [term]))
+        built.append(BuiltRule(id: name, args: expr.args, term: term))
+        return term
+    }
+
+    func buildRule(
+        _ rule: RuleDeclaration,
+        _ expr: NameExpression,
+        _ from: State,
+        _ to: State,
+        _ args: [TokenArg] = []
+    ) {
+        let name = expr.id.name
+        if rule.params.count != expr.args.count {
+            b.raise("Incorrect number of arguments for token '\(name)'", expr.start)
+        }
+        if let buildingRule = building.first(where: { $0.name == name && exprsEq(expr.args, $0.args) }) {
+            if buildingRule.to === to {
+                from.nullEdge(buildingRule.start)
+                return
+            }
+            var lastIndex = building.count - 1
+            while building[lastIndex].name != name { lastIndex -= 1 }
+            b.raise(
+                "Invalid (non-tail) recursion in token rules: \(building[lastIndex...].map { $0.name }.joined(separator: " -> "))",
+                expr.start
+            )
+        }
+        b.used(rule.id.name)
+        let start = State()
+        from.nullEdge(start)
+        building.append(BuildingRule(name: name, start: start, to: to, args: expr.args))
+        build(
+            b.substituteArgs(rule.expr, expr.args, rule.params),
+            start,
+            to,
+            expr.args.enumerated().map { i, e in TokenArg(name: rule.params[i].name, expr: e, scope: args) }
+        )
+        building.removeLast()
+    }
+
+    func build(_ expr: Expression, _ from: State, _ to: State, _ args: [TokenArg]) {
+        if let nameExpr = expr as? NameExpression {
+            let name = nameExpr.id.name
+            if let arg = args.first(where: { $0.name == name }) {
+                return build(arg.expr, from, to, arg.scope)
+            }
+            var foundRule: RuleDeclaration? = nil
+            for i in 0...b.localTokens.count {
+                let setRules: [RuleDeclaration]
+                if i == b.localTokens.count { setRules = b.tokens.rules }
+                else { setRules = b.localTokens[i].rules }
+                if let r = setRules.first(where: { $0.id.name == name }) {
+                    foundRule = r
+                    break
+                }
+            }
+            guard let rule = foundRule else {
+                b.raise("Reference to token rule '\(name)', which isn't found", expr.start)
+            }
+            buildRule(rule, nameExpr, from, to, args)
+        } else if let charClassExpr = expr as? CharClass {
+            for (a, bVal) in (charClasses[charClassExpr.type] ?? []) {
+                from.edge(a, bVal, to)
+            }
+        } else if let choiceExpr = expr as? ChoiceExpression {
+            for choice in choiceExpr.exprs { build(choice, from, to, args) }
+        } else if isExprEmpty(expr) {
+            from.nullEdge(to)
+        } else if let seqExpr = expr as? SequenceExpression {
+            if let conflict = seqExpr.markers.first(where: { !$0.isEmpty }) {
+                b.raise("Conflict marker in token expression", conflict[0].start)
+            }
+            var current = from
+            for i in 0..<seqExpr.exprs.count {
+                let next = i == seqExpr.exprs.count - 1 ? to : State()
+                build(seqExpr.exprs[i], current, next, args)
+                current = next
+            }
+        } else if let repeatExpr = expr as? RepeatExpression {
+            switch repeatExpr.kind {
+            case .star:
+                let loop = State()
+                from.nullEdge(loop)
+                build(repeatExpr.expr, loop, loop, args)
+                loop.nullEdge(to)
+            case .plus:
+                let loop = State()
+                build(repeatExpr.expr, from, loop, args)
+                build(repeatExpr.expr, loop, loop, args)
+                loop.nullEdge(to)
+            case .optional:
+                from.nullEdge(to)
+                build(repeatExpr.expr, from, to, args)
+            }
+        } else if let setExpr = expr as? SetExpression {
+            let ranges = setExpr.inverted ? invertRanges(setExpr.ranges) : setExpr.ranges
+            for (a, bVal) in ranges { rangeEdges(from, to, a, bVal) }
+        } else if let litExpr = expr as? LiteralExpression {
+            var current = from
+            let utf16 = Array(litExpr.value.utf16)
+            for i in 0..<utf16.count {
+                let ch = Int(utf16[i])
+                let next = i == utf16.count - 1 ? to : State()
+                current.edge(ch, ch + 1, next)
+                current = next
+            }
+        } else if expr is AnyExpression {
+            let mid = State()
+            from.edge(0, GAP_START, to)
+            from.edge(GAP_END, MAX_CHAR + 1, to)
+            from.edge(0xd800, GAP_END, mid)
+            mid.edge(LOW_SURR_B, 0xe000, to)
+        } else {
+            b.raise("Unrecognized expression type in token", expr.start)
+        }
+    }
+
+    func takePrecedences() {
+        var rel: [(term: Term, after: [Term])] = []
+        precedenceRelations = rel
+        guard let ast = ast else { return }
+        for group in ast.precedences {
+            var prev: [Term] = []
+            for item in group.items {
+                var level: [Term] = []
+                if let nameItem = item as? NameExpression {
+                    for builtRule in built {
+                        if !nameItem.args.isEmpty ? builtRule.matches(nameItem) : builtRule.id == nameItem.id.name {
+                            level.append(builtRule.term)
+                        }
+                    }
+                } else if let litItem = item as? LiteralExpression {
+                    let id = stringToJSON(litItem.value)
+                    if let found = built.first(where: { $0.id == id }) { level.append(found.term) }
+                }
+                if level.isEmpty { b.warn("Precedence specified for unknown token \(item)", item.start) }
+                for term in level { addRel(&rel, term, prev) }
+                prev = prev + level
+            }
+        }
+        precedenceRelations = rel
+    }
+
+    func precededBy(_ a: Term, _ b: Term) -> Bool {
+        guard let found = precedenceRelations.first(where: { $0.term === a }) else { return false }
+        return found.after.contains(where: { $0 === b })
+    }
+
+    func buildPrecTable(_ softConflicts: [TokenConflict]) -> [Int] {
+        var precTable: [Int] = []
+        var rel = precedenceRelations
+        for conflict in softConflicts {
+            var a = conflict.a, b = conflict.b
+            if conflict.soft != 0 {
+                if !rel.contains(where: { $0.term === a }) || !rel.contains(where: { $0.term === b }) { continue }
+                if conflict.soft < 0 { swap(&a, &b) }
+                addRel(&rel, b, [a])
+                addRel(&rel, a, [])
+            }
+        }
+        outer: while !rel.isEmpty {
+            for i in 0..<rel.count {
+                let record = rel[i]
+                if record.after.allSatisfy({ t in precTable.contains(t.id) }) {
+                    precTable.append(record.term.id)
+                    if rel.count == 1 { break outer }
+                    rel.remove(at: i)
+                    continue outer
+                }
+            }
+            b.raise("Cyclic token precedence relation between \(rel.map { $0.term.description }.joined(separator: ", "))")
+        }
+        return precTable
+    }
+}
+
+// MARK: - MainTokenSet
+
+class MainTokenSet: TokenSet {
+    var explicitConflicts: [(a: Term, b: Term)] = []
+
+    override init(b: Builder, ast: TokenDeclaration?) {
+        super.init(b: b, ast: ast)
+    }
+
+    func getLiteral(_ expr: LiteralExpression) -> Term {
+        let id = stringToJSON(expr.value)
+        for builtRule in built where builtRule.id == id { return builtRule.term }
+        var nodeName: String? = nil
+        var props: Props = [:]
+        var dialect: Int? = nil
+        var exported: String? = nil
+        if let decl = ast?.literals.first(where: { $0.literal == expr.value }) {
+            let info = b.nodeInfo(decl.props, "da", expr.value)
+            nodeName = info.name
+            props = info.props
+            dialect = info.dialect
+            exported = info.exported
+        }
+        let term = b.makeTerminal(id, nodeName, props)
+        if let dialect = dialect {
+            if byDialect[dialect] == nil { byDialect[dialect] = [] }
+            byDialect[dialect]!.append(term)
+        }
+        if let exported = exported { b.namedTerms[exported] = term }
+        build(expr, startState, State(accepting: [term]), [])
+        built.append(BuiltRule(id: id, args: [], term: term))
+        return term
+    }
+
+    func takeConflicts() {
+        func resolve(_ expr: Expression) -> Term? {
+            if let nameExpr = expr as? NameExpression {
+                for builtRule in built where builtRule.matches(nameExpr) { return builtRule.term }
+            } else if let litExpr = expr as? LiteralExpression {
+                let id = stringToJSON(litExpr.value)
+                if let found = built.first(where: { $0.id == id }) { return found.term }
+            }
+            b.warn("Conflict specified for unknown token \(expr)", expr.start)
+            return nil
+        }
+        for c in ast?.conflicts ?? [] {
+            var aTerm = resolve(c.a)
+            var bTerm = resolve(c.b)
+            if let a = aTerm, let b = bTerm {
+                if a.id < b.id { swap(&aTerm, &bTerm) }
+                explicitConflicts.append((a: aTerm!, b: bTerm!))
+            }
+        }
+    }
+
+    func buildTokenGroups(
+        _ states: [AutState],
+        _ skipInfo: [SkipInfo],
+        _ startID: Int
+    ) throws -> (tokenGroups: [BuildTokenGroup], tokenPrec: [Int], tokenData: [UInt16]) {
+        let tokens = startState.compile()
+        if !tokens.accepting.isEmpty {
+            let name = tokens.accepting[0].name
+            if let rule = rules.first(where: { $0.id.name == name }) {
+                b.raise("Grammar contains zero-length tokens (in '\(name)')", rule.start)
+            }
+        }
+
+        let occurTogether = checkTogether(states, b, skipInfo)
+        var allConflicts = tokens.findConflicts(occurTogether).filter { conflict in
+            !precededBy(conflict.a, conflict.b) && !precededBy(conflict.b, conflict.a)
+        }
+        for ec in explicitConflicts {
+            if !allConflicts.contains(where: { ($0.a === ec.a && $0.b === ec.b) }) {
+                allConflicts.append(TokenConflict(a: ec.a, b: ec.b, soft: 0, exampleA: "", exampleB: ""))
+            }
+        }
+        let softConflicts = allConflicts.filter { $0.soft != 0 }
+        let conflicts = allConflicts.filter { $0.soft == 0 }
+        var errors: [(conflict: TokenConflict, error: String)] = []
+
+        var groups: [BuildTokenGroup] = []
+        for state in states {
+            if state.defaultReduce != nil || state.tokenGroup > -1 { continue }
+            var terms: [Term] = []
+            var incompatible: [Term] = []
+            let skipIdx = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
+            let skip = skipInfo[skipIdx].startTokens
+            for term in skip {
+                if state.actions.contains(where: { actionTerm($0) === term }) {
+                    b.raise("Use of token \(term.name) conflicts with skip rule")
+                }
+            }
+            var stateTerms: [Term] = []
+            for i in 0..<(state.actions.count + skip.count) {
+                var term: Term
+                if i < state.actions.count { term = actionTerm(state.actions[i]) }
+                else { term = skip[i - state.actions.count] }
+                let orig = b.tokenOrigins[term.name]
+                if let orig = orig, let spec = orig.spec {
+                    term = spec
+                } else if let orig = orig, orig.external != nil {
+                    continue
+                }
+                addTo(term, &stateTerms)
+            }
+            if stateTerms.isEmpty { continue }
+
+            for term in stateTerms {
+                for conflict in conflicts {
+                    var conflicting: Term? = nil
+                    if conflict.a === term { conflicting = conflict.b }
+                    else if conflict.b === term { conflicting = conflict.a }
+                    guard let conflicting = conflicting else { continue }
+                    if stateTerms.contains(where: { $0 === conflicting }) &&
+                        !errors.contains(where: { $0.conflict === conflict }) {
+                        var example = ""
+                        if !conflict.exampleA.isEmpty {
+                            example = " (example: \(stringToJSON(conflict.exampleA))"
+                            if let eb = conflict.exampleB, !eb.isEmpty { example += " vs \(stringToJSON(eb))" }
+                            example += ")"
+                        }
+                        errors.append((
+                            conflict: conflict,
+                            error: "Overlapping tokens \(term.name) and \(conflicting.name) used in same context\(example)\nAfter: \(state.set[0].trail())"
+                        ))
+                    }
+                    addTo(term, &terms)
+                    addTo(conflicting, &incompatible)
+                }
+            }
+
+            var tokenGroup: BuildTokenGroup? = nil
+            for group in groups {
+                if incompatible.contains(where: { t in group.tokens.contains(where: { $0 === t }) }) { continue }
+                for term in terms { addTo(term, &group.tokens) }
+                tokenGroup = group
+                break
+            }
+            if tokenGroup == nil {
+                tokenGroup = BuildTokenGroup(tokens: terms, groupID: groups.count + startID)
+                groups.append(tokenGroup!)
+            }
+            state.tokenGroup = tokenGroup!.groupID!
+        }
+
+        if !errors.isEmpty {
+            b.raise(errors.map { $0.error }.joined(separator: "\n\n"))
+        }
+        if groups.count + startID > 16 {
+            b.raise("Too many different token groups (\(groups.count)) to represent them as a 16-bit bitfield")
+        }
+
+        let precTable = buildPrecTable(softConflicts)
+        let tokenData = try tokens.toArray(buildTokenMasks(groups), precTable)
+
+        return (tokenGroups: groups, tokenPrec: precTable, tokenData: tokenData)
+    }
+}
+
+// MARK: - LocalTokenSet
+
+class LocalTokenSet: TokenSet {
+    var fallbackTerm: Term? = nil
+
+    let localAst: LocalTokenDeclaration
+
+    init(b: Builder, ast: LocalTokenDeclaration) {
+        self.localAst = ast
+        super.init(b: b, ast: nil)
+        self.rules = ast.rules
+        for rule in self.rules { b.unique(rule.id) }
+        if let fb = ast.fallback { b.unique(fb.id) }
+    }
+
+    override func getToken(_ expr: NameExpression) -> Term? {
+        var term: Term? = nil
+        if let fb = localAst.fallback, fb.id.name == expr.id.name {
+            if !expr.args.isEmpty {
+                b.raise("Incorrect number of arguments for \(expr.id.name)", expr.start)
+            }
+            if fallbackTerm == nil {
+                let info = b.nodeInfo(fb.props, "", expr.id.name, [], [])
+                let t = b.makeTerminal(expr.id.name, info.name, info.props)
+                fallbackTerm = t
+                if t.nodeType || info.exported != nil {
+                    if !t.nodeType { t.preserve = true }
+                    b.namedTerms[info.exported ?? expr.id.name] = t
+                }
+                b.used(expr.id.name)
+            }
+            term = fallbackTerm
+        } else {
+            term = super.getToken(expr)
+        }
+        if let term = term, b.tokenOrigins[term.name] == nil {
+            b.tokenOrigins[term.name] = TokenOrigin(spec: nil, external: nil, group: self)
+        }
+        return term
+    }
+
+    func buildLocalGroup(
+        _ states: [AutState],
+        _ skipInfo: [SkipInfo],
+        _ id: Int
+    ) throws -> LocalTokenGroupSpec {
+        let tokens = startState.compile()
+        if !tokens.accepting.isEmpty {
+            let name = tokens.accepting[0].name
+            if let rule = rules.first(where: { $0.id.name == name }) {
+                b.raise("Grammar contains zero-length tokens (in '\(name)')", rule.start)
+            }
+        }
+
+        for conflict in tokens.findConflicts({ _, _ in true }) {
+            if !precededBy(conflict.a, conflict.b) && !precededBy(conflict.b, conflict.a) {
+                var example = ""
+                if !conflict.exampleA.isEmpty { example = " (example: \(stringToJSON(conflict.exampleA)))" }
+                b.raise("Overlapping tokens \(conflict.a.name) and \(conflict.b.name) in local token group\(example)")
+            }
+        }
+
+        for state in states {
+            if state.defaultReduce != nil { continue }
+            var usesThis: Term? = nil
+            var usesOther: Term? = nil
+            let skipIdx = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
+            if !skipInfo[skipIdx].startTokens.isEmpty {
+                usesOther = skipInfo[skipIdx].startTokens[0]
+            }
+            for action in state.actions {
+                let term = actionTerm(action)
+                var orig = b.tokenOrigins[term.name]
+                while let o = orig, let spec = o.spec { orig = b.tokenOrigins[spec.name] }
+                if let o = orig, o.group === self {
+                    usesThis = term
+                } else {
+                    usesOther = term
+                }
+            }
+            if usesThis != nil {
+                if usesOther != nil {
+                    b.raise("Tokens from a local token group used together with other tokens (\(usesThis!.name) with \(usesOther!.name))")
+                }
+                state.tokenGroup = id
+            }
+        }
+
+        let precTable = buildPrecTable([])
+        let tokenData = try tokens.toArray([id: Seq.End], precTable)
+        let precOffset = tokenData.count
+        var fullData = tokenData
+        for val in precTable { fullData.append(UInt16(truncatingIfNeeded: val)) }
+        fullData.append(UInt16(Seq.End))
+
+        return LocalTokenGroupSpec(
+            groupID: id,
+            fullData: fullData,
+            precOffset: precOffset,
+            elseToken: fallbackTerm?.id
+        )
+    }
+}
+
+// MARK: - ExternalTokenSet
+
+class ExternalTokenSet: TokenizerSpecProtocol {
+    let tokens: [String: Term]
+    let b: Builder
+    let ast: ExternalTokenDeclaration
+    let groupID: Int? = nil
+
+    init(b: Builder, ast: ExternalTokenDeclaration) {
+        self.b = b
+        self.ast = ast
+        self.tokens = gatherExtTokens(b, ast.tokens)
+        for (_, term) in tokens {
+            b.tokenOrigins[term.name] = TokenOrigin(spec: nil, external: self, group: nil)
+        }
+    }
+
+    func getToken(_ expr: NameExpression) -> Term? {
+        return findExtToken(b, tokens, expr)
+    }
+
+    func checkConflicts(_ states: [AutState], _ skipInfo: [SkipInfo]) {
+        var conflicting: [Term] = []
+        for id in ast.conflicts {
+            guard let term = b.namedTerms[id.name] else {
+                b.warn("Unknown conflict term '\(id.name)'")
+                continue
+            }
+            if !term.terminal {
+                b.warn("Term '\(id.name)' isn't a terminal and cannot be used in a token conflict.")
+            } else if tokens[id.name] != nil {
+                b.warn("External token set specifying a conflict with one of its own tokens ('\(id.name)')")
+            } else {
+                conflicting.append(term)
+            }
+        }
+        if !conflicting.isEmpty {
+            for state in states {
+                let skipIdx = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
+                let skip = skipInfo[skipIdx].startTokens
+                var relevant = false
+                var conflict: Term? = nil
+                for i in 0..<(state.actions.count + skip.count) {
+                    let term: Term
+                    if i < state.actions.count { term = actionTerm(state.actions[i]) }
+                    else { term = skip[i - state.actions.count] }
+                    if tokens[term.name] != nil { relevant = true }
+                    else if conflicting.contains(where: { $0 === term }) { conflict = term }
+                }
+                if relevant, let conflict = conflict {
+                    b.raise(
+                        "Tokens from external group used together with conflicting token '\(conflict.name)'\nAfter: \(state.set[0].trail())",
+                        ast.start
+                    )
+                }
+            }
+        }
+    }
+
+    func create() -> Any {
+        guard let factory = b.options.externalTokenizer else {
+            fatalError("External tokenizer '\(ast.id.name)' requested but no externalTokenizer option provided")
+        }
+        return factory(ast.id.name, b.termTable)
+    }
+}
+
+// MARK: - ExternalSpecializer
+
+class ExternalSpecializer {
+    var term: Term? = nil
+    let tokens: [String: Term]
+    let b: Builder
+    let ast: ExternalSpecializeDeclaration
+
+    init(b: Builder, ast: ExternalSpecializeDeclaration) {
+        self.b = b
+        self.ast = ast
+        self.tokens = gatherExtTokens(b, ast.tokens)
+    }
+
+    func finish() {
+        let terms = b.normalizeExpr(ast.token)
+        if terms.count != 1 || terms[0].terms.count != 1 || !terms[0].terms[0].terminal {
+            b.raise("The token expression to '@external \(ast.type)' must resolve to a token", ast.token.start)
+        }
+        term = terms[0].terms[0]
+        for (_, token) in tokens {
+            b.tokenOrigins[token.name] = TokenOrigin(spec: term, external: self, group: nil)
+        }
+    }
+
+    func getToken(_ expr: NameExpression) -> Term? {
+        return findExtToken(b, tokens, expr)
+    }
+}
+
+// MARK: - KnownProp
+
+struct KnownProp {
+    var prop: NodePropBase
+    var source: (name: String, from: String?)
+}
+
+// MARK: - SpecializedEntry
+
+struct SpecializedEntry {
+    var value: String
+    var name: String?
+    var term: Term
+    var type: String
+    var dialect: Int?
+}
+
+// MARK: - SpecializeTableEntry (for prepareParser output)
+
+struct SpecializeTableEntry {
+    let token: Term
+    let table: [String: Int]
+}
+
+// MARK: - Builder
+
+class Builder {
+    var ast: GrammarDeclaration!
+    var input: GenInput!
+    let terms = TermSet()
+    var tokens: MainTokenSet!
+    var localTokens: [LocalTokenSet] = []
+    var externalTokens: [ExternalTokenSet] = []
+    var externalSpecializers: [ExternalSpecializer] = []
+    var specialized: [String: [SpecializedEntry]] = [:]
+    var tokenOrigins: [String: TokenOrigin] = [:]
+    var rules: [Rule] = []
+    var built: [BuiltRule] = []
+    var ruleNames: [String: Identifier] = [:]
+    var namedTerms: [String: Term] = [:]
+    var termTable: [String: Int] = [:]
+    var knownProps: [String: KnownProp] = [:]
+    var dialects: [String] = []
+    var dynamicRulePrecedences: [(rule: Term, prec: Int)] = []
+    var definedGroups: [(name: Term, group: String, rule: RuleDeclaration)] = []
+    var astRules: [(skip: Term, rule: RuleDeclaration)] = []
+    var currentSkip: [Term] = []
+    var skipRules: [Term] = []
+    let options: BuildOptions
+
+    init(text: String, options: BuildOptions) throws {
+        self.options = options
+
+        let parsedInput = GenInput(text, fileName: options.fileName)
+        self.input = parsedInput
+        self.ast = try logTime("Parse") { try parsedInput.parse() }
+
+        let builtinProps: [(String, NodePropBase)] = [
+            ("openedBy", nodePropOpenedBy),
+            ("closedBy", nodePropClosedBy),
+            ("group", nodePropGroup),
+            ("isolate", nodePropIsolate),
+        ]
+        for (name, prop) in builtinProps {
+            knownProps[name] = KnownProp(prop: prop, source: (name: name, from: nil))
+        }
+        for prop in ast.externalProps {
+            let propBase: NodePropBase
+            if let factory = options.externalProp {
+                propBase = factory(prop.id.name)
+            } else {
+                propBase = NodeProp<String>()
+            }
+            knownProps[prop.id.name] = KnownProp(
+                prop: propBase,
+                source: (name: prop.externalID.name, from: prop.source)
+            )
+        }
+
+        dialects = ast.dialects.map { $0.name }
+
+        tokens = MainTokenSet(b: self, ast: ast.tokens)
+        localTokens = ast.localTokens.map { LocalTokenSet(b: self, ast: $0) }
+        externalTokens = ast.externalTokens.map { ExternalTokenSet(b: self, ast: $0) }
+        externalSpecializers = ast.externalSpecializers.map { ExternalSpecializer(b: self, ast: $0) }
+
+        try logTime("Build rules") {
+            let noSkip = newName("%noskip", true)
+            currentSkip.append(noSkip)
+            defineRule(noSkip, [])
+
+            let mainSkip = ast.mainSkip != nil ? newName("%mainskip", true) : noSkip
+            var scopedSkip: [Term] = []
+            var topRules: [(rule: RuleDeclaration, skip: Term)] = []
+            for rule in ast.rules { astRules.append((skip: mainSkip, rule: rule)) }
+            for rule in ast.topRules { topRules.append((rule: rule, skip: mainSkip)) }
+            for scoped in ast.scopedSkip {
+                var skip = noSkip
+                let found = ast.scopedSkip.enumerated().first { i, sc in
+                    i < scopedSkip.count && exprEq(sc.expr, scoped.expr)
+                }
+                if let found = found {
+                    skip = scopedSkip[found.offset]
+                } else if ast.mainSkip != nil && exprEq(scoped.expr, ast.mainSkip!) {
+                    skip = mainSkip
+                } else if !isExprEmpty(scoped.expr) {
+                    skip = newName("%skip", true)
+                }
+                scopedSkip.append(skip)
+                for rule in scoped.rules { astRules.append((skip: skip, rule: rule)) }
+                for rule in scoped.topRules { topRules.append((rule: rule, skip: skip)) }
+            }
+
+            for astRule in astRules { unique(astRule.rule.id) }
+
+            skipRules = mainSkip === noSkip ? [mainSkip] : [noSkip, mainSkip]
+            if mainSkip !== noSkip { defineRule(mainSkip, normalizeExpr(ast.mainSkip!)) }
+            for i in 0..<ast.scopedSkip.count {
+                let skip = scopedSkip[i]
+                if !skipRules.contains(where: { $0 === skip }) {
+                    skipRules.append(skip)
+                    if skip !== noSkip { defineRule(skip, normalizeExpr(ast.scopedSkip[i].expr)) }
+                }
+            }
+
+            for topRule in topRules.sorted(by: { $0.rule.start < $1.rule.start }) {
+                unique(topRule.rule.id)
+                used(topRule.rule.id.name)
+                currentSkip.append(topRule.skip)
+                let info = nodeInfo(topRule.rule.props, "a", topRule.rule.id.name, [], [], topRule.rule.expr)
+                let term = terms.makeTop(info.name, info.props)
+                namedTerms[info.name!] = term
+                defineRule(term, normalizeExpr(topRule.rule.expr))
+                currentSkip.removeLast()
+            }
+
+            for ext in externalSpecializers { ext.finish() }
+
+            for astRule in astRules {
+                let rule = astRule.rule
+                if ruleNames[rule.id.name] != nil && isExported(rule) && rule.params.isEmpty {
+                    _ = buildRule(rule, [], astRule.skip, false)
+                    if let seq = rule.expr as? SequenceExpression, seq.exprs.isEmpty {
+                        used(rule.id.name)
+                    }
+                }
+            }
+        }
+
+        for (_, id) in ruleNames {
+            warn("Unused rule '\(id.name)'", id.start)
+        }
+
+        tokens.takePrecedences()
+        tokens.takeConflicts()
+        for lt in localTokens { lt.takePrecedences() }
+
+        for entry in definedGroups { defineGroup(entry.name, entry.group, entry.rule) }
+        checkGroups()
+    }
+
+    func unique(_ id: Identifier) {
+        if ruleNames[id.name] != nil {
+            raise("Duplicate definition of rule '\(id.name)'", id.start)
+        }
+        ruleNames[id.name] = id
+    }
+
+    func used(_ name: String) {
+        ruleNames.removeValue(forKey: name)
+    }
+
+    func newName(_ base: String, _ nodeName: Any? = nil, _ props: Props = [:]) -> Term {
+        let nodeNameStr: String? = nodeName as? String
+        let startIdx = nodeName != nil ? 0 : 1
+        for i in startIdx... {
+            let name = i == 0 ? base : "\(base)-\(i)"
+            if terms.names[name] == nil {
+                return terms.makeNonTerminal(name, nodeNameStr, props)
+            }
+        }
+        fatalError("unreachable")
+    }
+
+    func prepareParser() throws -> (
+        states: [UInt32],
+        stateData: [UInt16],
+        goto: [UInt16],
+        nodeNames: String,
+        nodeProps: [(prop: String, terms: [Any])],
+        skippedTypes: [Int],
+        maxTerm: Int,
+        repeatNodeCount: Int,
+        tokenizers: [TokenizerSpecProtocol],
+        tokenData: [UInt16],
+        topRules: [String: [Int]],
+        dialects: [String: Int],
+        dynamicPrecedences: [Int: Int]?,
+        specialized: [Any],
+        tokenPrec: Int,
+        termNames: [Int: String]
+    ) {
+        let simplifiedRules = try logTime("Simplify rules") {
+            simplifyRules(rules, skipRules + terms.tops)
+        }
+        let (nodeTypes, names, minRepeatTerm, maxTerm) = try terms.finish(simplifiedRules)
+        for (_, term) in namedTerms { termTable[namedTerms.first(where: { $0.value === term })?.key ?? ""] = term.id }
+        for (name, term) in namedTerms { termTable[name] = term.id }
+
+        if verbose.contains("grammar") {
+            print(simplifiedRules.map { $0.description }.joined(separator: "\n"))
+        }
+
+        var startTerms = terms.tops
+        let first = computeFirstSets(terms)
+        let skipInfoArr: [SkipInfo] = skipRules.enumerated().map { id, name in
+            var skip: [Term] = []
+            var startTokens: [Term] = []
+            var rules: [Rule] = []
+            for rule in name.rules {
+                if rule.parts.isEmpty { continue }
+                let start = rule.parts[0]
+                if start.terminal {
+                    if !startTokens.contains(where: { $0 === start }) { startTokens.append(start) }
+                } else {
+                    for t in first[start.name] ?? [] {
+                        if let t = t, !startTokens.contains(where: { $0 === t }) { startTokens.append(t) }
+                    }
+                }
+                if start.terminal && rule.parts.count == 1 && !rules.contains(where: { $0 !== rule && $0.parts[0] === start }) {
+                    skip.append(start)
+                } else {
+                    rules.append(rule)
+                }
+            }
+            name.rules = rules
+            if !rules.isEmpty { startTerms.append(name) }
+            return SkipInfo(skip: skip, rule: rules.isEmpty ? nil : name, startTokens: startTokens, id: id)
+        }
+        let fullTable = try logTime("Build full automaton") {
+            try buildFullAutomaton(terms, startTerms, first)
+        }
+        let localTokenSpecs = try localTokens.enumerated().map { (offset, grp) in
+            try grp.buildLocalGroup(fullTable, skipInfoArr, offset)
+        }
+        let (tokenGroups, tokenPrec, tokenData) = try logTime("Build token groups") {
+            try tokens.buildTokenGroups(fullTable, skipInfoArr, localTokens.count)
+        }
+        for ext in externalTokens { ext.checkConflicts(fullTable, skipInfoArr) }
+        let table = try logTime("Finish automaton") { finishAutomaton(fullTable) }
+        let skipState = findSkipStates(table, terms.tops)
+
+        if verbose.contains("lr") {
+            print(table.map { $0.description }.joined(separator: "\n"))
+        }
+
+        var specializedList: [Any] = []
+        for ext in externalSpecializers { specializedList.append(ext) }
+        for (name, entries) in specialized {
+            let term = terms.names[name]
+            if let term = term {
+                specializedList.append(SpecializeTableEntry(token: term, table: buildSpecializeTable(entries)))
+            }
+        }
+
+        func tokStart(_ tokenizer: TokenizerSpecProtocol) -> Int {
+            if let ext = tokenizer as? ExternalTokenSet { return ext.ast.start }
+            return tokens.ast?.start ?? -1
+        }
+        var allTokenizers: [TokenizerSpecProtocol] = []
+        allTokenizers.append(contentsOf: tokenGroups)
+        allTokenizers.append(contentsOf: externalTokens)
+        allTokenizers.sort { tokStart($0) < tokStart($1) }
+        allTokenizers.append(contentsOf: localTokenSpecs)
+
+        let data = DataBuilder()
+        let skipData = skipInfoArr.map { info in
+            var actions: [Int] = []
+            for term in info.skip {
+                actions.append(term.id)
+                actions.append(0)
+                actions.append(Action.StayFlag >> 16)
+            }
+            if let rule = info.rule {
+                if let state = table.first(where: { $0.startRule === rule }) {
+                    for action in state.actions {
+                        if let shift = action as? Shift {
+                            actions.append(shift.term.id)
+                            actions.append(state.id)
+                            actions.append(Action.GotoFlag >> 16)
+                        }
+                    }
+                }
+            }
+            actions.append(Seq.End)
+            actions.append(Seq.Done)
+            return data.storeArray(actions)
+        }
+
+        let stateArray = try logTime("Finish states") { () -> [UInt32] in
+            var states = [UInt32](repeating: 0, count: table.count * ParseState.Size)
+            let forceReductions = computeForceReductions(table, skipInfoArr)
+            let finishCx = FinishStateContext(
+                tokenizers: allTokenizers,
+                data: data,
+                stateArray: states,
+                skipData: skipData,
+                skipInfo: skipInfoArr,
+                states: table,
+                builder: self
+            )
+            for s in table {
+                finishCx.finish(s, skipState(s.id), forceReductions[s.id])
+            }
+            return finishCx.stateArray
+        }
+
+        var dialectsDict: [String: Int] = [:]
+        for i in 0..<dialects.count {
+            let terms = (tokens.byDialect[i] ?? []).map { $0.id } + [Seq.End]
+            dialectsDict[dialects[i]] = data.storeArray(terms)
+        }
+
+        var dynamicPrecedences: [Int: Int]? = nil
+        if !dynamicRulePrecedences.isEmpty {
+            dynamicPrecedences = [:]
+            for entry in dynamicRulePrecedences { dynamicPrecedences![entry.rule.id] = entry.prec }
+        }
+
+        var topRulesDict: [String: [Int]] = [:]
+        for term in terms.tops {
+            if let nodeName = term.nodeName {
+                if let state = table.first(where: { $0.startRule === term }) {
+                    topRulesDict[nodeName] = [state.id, term.id]
+                }
+            }
+        }
+
+        let precTable = data.storeArray(tokenPrec + [Seq.End])
+        let (nodeProps, skippedTypes) = try gatherNodeProps(nodeTypes)
+
+        return (
+            states: stateArray,
+            stateData: data.finish(),
+            goto: computeGotoTable(table),
+            nodeNames: nodeTypes.filter { $0.id < minRepeatTerm }.map { $0.nodeName ?? "" }.joined(separator: " "),
+            nodeProps: nodeProps,
+            skippedTypes: skippedTypes,
+            maxTerm: maxTerm,
+            repeatNodeCount: nodeTypes.count - minRepeatTerm,
+            tokenizers: allTokenizers,
+            tokenData: tokenData,
+            topRules: topRulesDict,
+            dialects: dialectsDict,
+            dynamicPrecedences: dynamicPrecedences,
+            specialized: specializedList,
+            tokenPrec: precTable,
+            termNames: names
+        )
+    }
+
+    func getParser() throws -> LRParser {
+        let result = try prepareParser()
+
+        var specializedSpecs: [LRParser.SpecializerSpec] = []
+        for v in result.specialized {
+            if let ext = v as? ExternalSpecializer {
+                guard let factory = options.externalSpecializer else {
+                    fatalError("External specializer '\(ext.ast.id.name)' requested but no externalSpecializer option provided")
+                }
+                let extFn = factory(ext.ast.id.name, termTable)
+                let isExtend = ext.ast.type == "extend"
+                specializedSpecs.append(LRParser.SpecializerSpec(
+                    term: ext.term!.id,
+                    get: { value, stack in (extFn(value, stack) << 1) | (isExtend ? Specialize.Extend : Specialize.Specialize) },
+                    external: extFn,
+                    extend: isExtend
+                ))
+            } else if let entry = v as? SpecializeTableEntry {
+                specializedSpecs.append(LRParser.SpecializerSpec(
+                    term: entry.token.id,
+                    get: { value, _ in entry.table[value] ?? -1 },
+                    external: nil,
+                    extend: false
+                ))
+            }
+        }
+
+        let nodePropArrays: [[Any]] = result.nodeProps.map { prop, terms in
+            [knownProps[prop]!.prop] + terms
+        }
+
+        var propSources: [NodePropSource]? = nil
+        if let factory = options.externalPropSource {
+            propSources = ast.externalPropSources.map { factory($0.id.name) }
+        }
+
+        let spec = LRParser.ParserSpec(
+            version: LrFile.Version,
+            states: result.states,
+            stateData: result.stateData,
+            goto: result.goto,
+            nodeNames: result.nodeNames,
+            maxTerm: result.maxTerm,
+            repeatNodeCount: result.repeatNodeCount,
+            nodeProps: nodePropArrays.isEmpty ? nil : nodePropArrays,
+            propSources: propSources,
+            skippedNodes: result.skippedTypes.isEmpty ? nil : result.skippedTypes,
+            tokenData: result.tokenData,
+            tokenizers: result.tokenizers.map { $0.create() },
+            topRules: result.topRules,
+            context: options.contextTracker,
+            dialects: result.dialects.isEmpty ? nil : result.dialects,
+            dynamicPrecedences: result.dynamicPrecedences,
+            specialized: specializedSpecs.isEmpty ? nil : specializedSpecs,
+            tokenPrec: result.tokenPrec,
+            termNames: result.termNames
+        )
+        return LRParser(spec: spec)
+    }
+
+    func gatherNonSkippedNodes() -> [Int: Bool] {
+        var seen: [Int: Bool] = [:]
+        var work: [Term] = []
+        func add(_ term: Term) {
+            if seen[term.id] == nil {
+                seen[term.id] = true
+                work.append(term)
+            }
+        }
+        for term in terms.tops { add(term) }
+        var i = 0
+        while i < work.count {
+            for rule in work[i].rules {
+                for part in rule.parts { add(part) }
+            }
+            i += 1
+        }
+        return seen
+    }
+
+    func gatherNodeProps(_ nodeTypes: [Term]) throws -> (nodeProps: [(prop: String, terms: [Any])], skippedTypes: [Int]) {
+        let notSkipped = gatherNonSkippedNodes()
+        var skippedTypes: [Int] = []
+        var nodeProps: [(prop: String, values: [String: [Int]])] = []
+        for type in nodeTypes {
+            if notSkipped[type.id] == nil && !type.error { skippedTypes.append(type.id) }
+            for (prop, value) in type.props {
+                guard let known = knownProps[prop] else {
+                    throw GenError("No known prop type for \(prop)")
+                }
+                if known.source.from == nil && (known.source.name == "repeated" || known.source.name == "error") {
+                    continue
+                }
+                var rec = nodeProps.first(where: { $0.prop == prop })
+                if rec == nil {
+                    nodeProps.append((prop: prop, values: [:]))
+                    rec = nodeProps[nodeProps.count - 1]
+                }
+                if rec!.values[value] == nil { rec!.values[value] = [] }
+                rec!.values[value]!.append(type.id)
+            }
+        }
+        let result = nodeProps.map { prop, values -> (prop: String, terms: [Any]) in
+            var terms: [Any] = []
+            for (val, ids) in values {
+                if ids.count == 1 {
+                    terms.append(ids[0])
+                    terms.append(val)
+                } else {
+                    terms.append(-ids.count)
+                    for id in ids { terms.append(id) }
+                    terms.append(val)
+                }
+            }
+            return (prop: prop, terms: terms)
+        }
+        return (nodeProps: result, skippedTypes: skippedTypes)
+    }
+
+    func makeTerminal(_ name: String, _ nodeName: String?, _ props: Props) -> Term {
+        return terms.makeTerminal(terms.uniqueName(name), nodeName, props)
+    }
+
+    func computeForceReductions(_ states: [AutState], _ skipInfo: [SkipInfo]) -> [Int] {
+        var reductions: [Int] = []
+        var candidates: [[Pos]] = []
+        var gotoEdges: [Int: [(parents: [Int], target: Int)]] = [:]
+
+        for state in states {
+            reductions.append(0)
+            for edge in state.gotoActions {
+                if gotoEdges[edge.term.id] == nil { gotoEdges[edge.term.id] = [] }
+                var array = gotoEdges[edge.term.id]!
+                if let found = array.firstIndex(where: { $0.target == edge.target.id }) {
+                    array[found].parents.append(state.id)
+                } else {
+                    array.append((parents: [state.id], target: edge.target.id))
+                }
+                gotoEdges[edge.term.id] = array
+            }
+            candidates.append(
+                state.set.filter { $0.pos > 0 && !$0.rule.name.top }
+                    .sorted { $0.pos > $1.pos || ($0.pos == $1.pos && $0.rule.parts.count < $1.rule.parts.count) }
+            )
+        }
+
+        var length1Reductions: [Int: Int] = [:]
+        func createsCycle(_ term: Int, _ startState: Int, _ parents: [Int]? = nil) -> Bool {
+            guard let edges = gotoEdges[term] else { return false }
+            return edges.contains { val in
+                let parentIntersection: [Int]
+                if let parents = parents {
+                    parentIntersection = parents.filter { p in val.parents.contains(p) }
+                } else {
+                    parentIntersection = val.parents
+                }
+                if parentIntersection.isEmpty { return false }
+                if val.target == startState { return true }
+                if let found = length1Reductions[val.target] {
+                    return createsCycle(found, startState, parentIntersection)
+                }
+                return false
+            }
+        }
+
+        for state in states {
+            if let dr = state.defaultReduce, dr.parts.count > 0 {
+                reductions[state.id] = reduceAction(dr, skipInfo)
+                if dr.parts.count == 1 {
+                    length1Reductions[state.id] = dr.name.id
+                }
+            }
+        }
+
+        var setSize = 1
+        while true {
+            var done = true
+            for state in states {
+                if state.defaultReduce != nil { continue }
+                let set = candidates[state.id]
+                if set.count != setSize {
+                    if set.count > setSize { done = false }
+                    continue
+                }
+                for pos in set {
+                    if pos.pos != 1 || !createsCycle(pos.rule.name.id, state.id) {
+                        reductions[state.id] = reduceAction(pos.rule, skipInfo, pos.pos)
+                        if pos.pos == 1 { length1Reductions[state.id] = pos.rule.name.id }
+                        break
+                    }
+                }
+            }
+            if done { break }
+            setSize += 1
+        }
+        return reductions
+    }
+
+    func substituteArgs(_ expr: Expression, _ args: [Expression], _ params: [Identifier]) -> Expression {
+        if args.isEmpty { return expr }
+        return expr.walk { e in
+            if let nameExpr = e as? NameExpression {
+                if let found = params.firstIndex(where: { $0.name == nameExpr.id.name }) {
+                    let arg = args[found]
+                    if !nameExpr.args.isEmpty {
+                        if let argName = arg as? NameExpression, argName.args.isEmpty {
+                            return NameExpression(start: nameExpr.start, id: argName.id, args: nameExpr.args)
+                        }
+                        self.raise("Passing arguments to a parameter that already has arguments", nameExpr.start)
+                    }
+                    return arg
+                }
+            } else if let inlineExpr = e as? InlineRuleExpression {
+                let r = inlineExpr.rule
+                let newProps = self.substituteArgsInProps(r.props, args, params)
+                if Prop.eqProps(newProps, r.props) {
+                    return e
+                }
+                return InlineRuleExpression(start: inlineExpr.start, rule: RuleDeclaration(
+                    start: r.start, id: r.id, props: newProps, params: r.params, expr: r.expr
+                ))
+            } else if let specExpr = e as? SpecializeExpression {
+                let newProps = self.substituteArgsInProps(specExpr.props, args, params)
+                if Prop.eqProps(newProps, specExpr.props) {
+                    return e
+                }
+                return SpecializeExpression(
+                    start: specExpr.start, type: specExpr.type, props: newProps,
+                    token: specExpr.token, content: specExpr.content
+                )
+            }
+            return e
+        }
+    }
+
+    func substituteArgsInProps(_ props: [Prop], _ args: [Expression], _ params: [Identifier]) -> [Prop] {
+        func substituteInValue(_ value: [PropPart]) -> [PropPart]? {
+            var changed = false
+            var result = value
+            for i in 0..<value.count {
+                let part = value[i]
+                guard let name = part.name else { continue }
+                guard let pos = params.firstIndex(where: { $0.name == name }) else { continue }
+                if !changed { result = value; changed = true }
+                let expr = args[pos]
+                if let argName = expr as? NameExpression, argName.args.isEmpty {
+                    result[i] = PropPart(start: part.start, value: argName.id.name, name: nil)
+                } else if let litExpr = expr as? LiteralExpression {
+                    result[i] = PropPart(start: part.start, value: litExpr.value, name: nil)
+                } else {
+                    raise("Trying to interpolate expression '\(expr)' into a prop", part.start)
+                }
+            }
+            return changed ? result : nil
+        }
+        var result = props
+        var changed = false
+        for i in 0..<props.count {
+            let prop = props[i]
+            if let newValue = substituteInValue(prop.value) {
+                if !changed { result = props; changed = true }
+                result[i] = Prop(start: prop.start, at: prop.at, name: prop.name, value: newValue)
+            }
+        }
+        return result
+    }
+
+    func conflictsFor(_ markers: [ConflictMarker]) -> (here: Conflicts, atEnd: Conflicts) {
+        var here = Conflicts.none
+        var atEnd = Conflicts.none
+        for marker in markers {
+            if marker.type == .ambig {
+                here = here.join(Conflicts(precedence: 0, [marker.id.name]))
+            } else {
+                guard let precs = ast.precedences else {
+                    raise("Reference to unknown precedence: '\(marker.id.name)'", marker.id.start)
+                }
+                let index = precs.items.firstIndex(where: { $0.id.name == marker.id.name })
+                guard let index = index else {
+                    raise("Reference to unknown precedence: '\(marker.id.name)'", marker.id.start)
+                }
+                let value = precs.items.count - index
+                let prec = precs.items[index]
+                if prec.type == .cut {
+                    here = here.join(Conflicts(precedence: 0, cut: value))
+                } else {
+                    here = here.join(Conflicts(precedence: value << 2))
+                    let endValue = (value << 2) + (prec.type == .left ? 1 : prec.type == .right ? -1 : 0)
+                    atEnd = atEnd.join(Conflicts(precedence: endValue))
+                }
+            }
+        }
+        return (here: here, atEnd: atEnd)
+    }
+
+    func raise(_ message: String, _ pos: Int = 1) -> Never {
+        input.raise(message, pos)
+    }
+
+    func warn(_ message: String, _ pos: Int = -1) {
+        let msg = input.message(message, pos)
+        if let warnFn = options.warn { warnFn(msg) }
+        else { print(msg) }
+    }
+
+    func defineRule(_ name: Term, _ choices: [Parts]) {
+        let skip = currentSkip[currentSkip.count - 1]
+        for choice in choices {
+            rules.append(Rule(name: name, parts: choice.terms, conflicts: choice.ensureConflicts(), skip: skip))
+        }
+    }
+
+    func resolve(_ expr: NameExpression) -> [Parts] {
+        for builtRule in built where builtRule.matches(expr) { return [p(builtRule.term)] }
+
+        if let found = tokens.getToken(expr) { return [p(found)] }
+        for grp in localTokens {
+            if let found = grp.getToken(expr) { return [p(found)] }
+        }
+        for ext in externalTokens {
+            if let found = ext.getToken(expr) { return [p(found)] }
+        }
+        for ext in externalSpecializers {
+            if let found = ext.getToken(expr) { return [p(found)] }
+        }
+
+        guard let known = astRules.first(where: { $0.rule.id.name == expr.id.name }) else {
+            raise("Reference to undefined rule '\(expr.id.name)'", expr.start)
+        }
+        if known.rule.params.count != expr.args.count {
+            raise("Wrong number of arguments for '\(expr.id.name)'", expr.start)
+        }
+        used(known.rule.id.name)
+        return [p(buildRule(known.rule, expr.args, known.skip))]
+    }
+
+    func normalizeRepeat(_ expr: RepeatExpression) -> Parts {
+        if let known = built.first(where: { $0.matchesRepeat(expr) }) { return p(known.term) }
+
+        let name = expr.expr.prec < expr.prec ? "(\(expr.expr))+" : "\(expr.expr)+"
+        let term = terms.makeRepeat(terms.uniqueName(name))
+        built.append(BuiltRule(id: "+", args: [expr.expr], term: term))
+
+        defineRule(term, normalizeExpr(expr.expr) + [p(term, term)])
+        return p(term)
+    }
+
+    func normalizeSequence(_ expr: SequenceExpression) -> [Parts] {
+        let result: [[Parts]] = expr.exprs.map { normalizeExpr($0) }
+        func complete(_ start: Parts, _ from: Int, _ endConflicts: Conflicts) -> [Parts] {
+            let conflicts = conflictsFor(expr.markers[from])
+            if from == result.count {
+                return [start.withConflicts(start.terms.count, conflicts.here.join(endConflicts))]
+            }
+            var choices: [Parts] = []
+            for choice in result[from] {
+                for full in complete(
+                    start.concat(choice).withConflicts(start.terms.count, conflicts.here),
+                    from + 1,
+                    endConflicts.join(conflicts.atEnd)
+                ) {
+                    choices.append(full)
+                }
+            }
+            return choices
+        }
+        return complete(Parts.none, 0, Conflicts.none)
+    }
+
+    func normalizeExpr(_ expr: Expression) -> [Parts] {
+        if let repeatExpr = expr as? RepeatExpression, repeatExpr.kind == .optional {
+            return [Parts.none] + normalizeExpr(repeatExpr.expr)
+        } else if let repeatExpr = expr as? RepeatExpression {
+            let repeated = normalizeRepeat(repeatExpr)
+            return repeatExpr.kind == .plus ? [repeated] : [Parts.none, repeated]
+        } else if let choiceExpr = expr as? ChoiceExpression {
+            return choiceExpr.exprs.reduce([]) { $0 + normalizeExpr($1) }
+        } else if let seqExpr = expr as? SequenceExpression {
+            return normalizeSequence(seqExpr)
+        } else if let litExpr = expr as? LiteralExpression {
+            return [p(tokens.getLiteral(litExpr))]
+        } else if let nameExpr = expr as? NameExpression {
+            return resolve(nameExpr)
+        } else if let specExpr = expr as? SpecializeExpression {
+            return [p(resolveSpecialization(specExpr))]
+        } else if let inlineExpr = expr as? InlineRuleExpression {
+            return [p(buildRule(
+                inlineExpr.rule, [],
+                currentSkip[currentSkip.count - 1], true
+            ))]
+        } else {
+            raise("This type of expression ('\(expr)') may not occur in non-token rules", expr.start)
+        }
+    }
+
+    func buildRule(_ rule: RuleDeclaration, _ args: [Expression], _ skip: Term, _ inline: Bool = false) -> Term {
+        let expr = substituteArgs(rule.expr, args, rule.params)
+        let info = nodeInfo(
+            rule.params.isEmpty && rule.props.isEmpty ? [] : rule.props,
+            inline ? "pg" : "pgi",
+            rule.id.name,
+            args,
+            rule.params,
+            rule.expr
+        )
+        if info.exported != nil && !rule.params.isEmpty { warn("Can't export parameterized rules", rule.start) }
+        if info.exported != nil && inline { warn("Can't export inline rule", rule.start) }
+        let name = newName(
+            rule.id.name + (args.isEmpty ? "" : "<\(args.map { $0.description }.joined(separator: ","))>"),
+            info.name ?? true,
+            info.props
+        )
+        if info.isInline { name.inline = true }
+        if info.dynamicPrec != 0 { registerDynamicPrec(name, info.dynamicPrec) }
+        if (name.nodeType || info.exported != nil) && rule.params.isEmpty {
+            if info.name == nil { name.preserve = true }
+            if !inline { namedTerms[info.exported ?? rule.id.name] = name }
+        }
+
+        if !inline { built.append(BuiltRule(id: rule.id.name, args: args, term: name)) }
+        currentSkip.append(skip)
+        let parts = normalizeExpr(expr)
+        if parts.count > 100 * (expr is ChoiceExpression ? (expr as! ChoiceExpression).exprs.count : 1) {
+            warn(
+                "Rule \(rule.id.name) is generating a lot (\(parts.count)) of choices.\n  Consider splitting it up or reducing the amount of ? or | operator uses.",
+                rule.start
+            )
+        }
+        if verbose.contains("rulesize") && parts.count > 10 {
+            print("Rule \(rule.id.name): \(parts.count) variants")
+        }
+        defineRule(name, parts)
+        currentSkip.removeLast()
+        if let group = info.group { definedGroups.append((name: name, group: group, rule: rule)) }
+        return name
+    }
+
+    func nodeInfo(
+        _ props: [Prop],
+        _ allow: String,
+        _ defaultName: String? = nil,
+        _ args: [Expression] = [],
+        _ params: [Identifier] = [],
+        _ expr: Expression? = nil,
+        _ defaultProps: Props? = nil
+    ) -> (name: String?, props: Props, dialect: Int?, dynamicPrec: Int, isInline: Bool, group: String?, exported: String?) {
+        var result: Props = [:]
+        var name = defaultName
+        if let dn = defaultName, (allow.contains("a") || !isIgnored(dn)) && !dn.contains(" ") {
+            name = dn
+        } else {
+            name = nil
+        }
+        var dialect: Int? = nil
+        var dynamicPrec = 0
+        var isInline = false
+        var group: String? = nil
+        var exported: String? = nil
+
+        for prop in props {
+            if !prop.at {
+                if knownProps[prop.name] == nil {
+                    let builtinNames = ["name", "dialect", "dynamicPrecedence", "export", "isGroup"]
+                    let hint = builtinNames.contains(prop.name) ? " (did you mean '@\(prop.name)'?)" : ""
+                    raise("Unknown prop name '\(prop.name)'\(hint)", prop.start)
+                }
+                result[prop.name] = finishProp(prop, args, params)
+            } else if prop.name == "name" {
+                name = finishProp(prop, args, params)
+                if let n = name, n.contains(" ") { raise("Node names cannot have spaces ('\(n)')", prop.start) }
+            } else if prop.name == "dialect" {
+                if !allow.contains("d") { raise("Can't specify a dialect on non-token rules", props[0].start) }
+                if prop.value.count != 1 && prop.value[0].value == nil {
+                    raise("The '@dialect' rule prop must hold a plain string value")
+                }
+                let dialectName = prop.value[0].value ?? ""
+                let dialectID = dialects.firstIndex(of: dialectName)
+                if let dialectID = dialectID {
+                    dialect = dialectID
+                } else {
+                    raise("Unknown dialect '\(dialectName)'", prop.value[0].start)
+                }
+            } else if prop.name == "dynamicPrecedence" {
+                if !allow.contains("p") { raise("Dynamic precedence can only be specified on nonterminals") }
+                let val = prop.value[0].value ?? ""
+                if prop.value.count != 1 || !(val.matchesRegex("^-?(?:10|\\d)$")) {
+                    raise("The '@dynamicPrecedence' rule prop must hold an integer between -10 and 10")
+                }
+                dynamicPrec = Int(prop.value[0].value!)!
+            } else if prop.name == "inline" {
+                if !prop.value.isEmpty { raise("'@inline' doesn't take a value", prop.value[0].start) }
+                if !allow.contains("i") { raise("Inline can only be specified on nonterminals") }
+                isInline = true
+            } else if prop.name == "isGroup" {
+                if !allow.contains("g") { raise("'@isGroup' can only be specified on nonterminals") }
+                group = !prop.value.isEmpty ? finishProp(prop, args, params) : defaultName
+            } else if prop.name == "export" {
+                exported = !prop.value.isEmpty ? finishProp(prop, args, params) : defaultName
+            } else {
+                raise("Unknown built-in prop name '@\(prop.name)'", prop.start)
+            }
+        }
+        if let expr = expr, ast.autoDelim, let name = name, hasProps(result) || name != nil {
+            if let delim = findDelimiters(expr) {
+                addToProp(delim.0, "closedBy", delim.1.nodeName!)
+                addToProp(delim.1, "openedBy", delim.0.nodeName!)
+            }
+        }
+        if let defaultProps = defaultProps, hasProps(defaultProps) {
+            for (prop, value) in defaultProps { if result[prop] == nil { result[prop] = value } }
+        }
+        if hasProps(result) && name == nil {
+            raise("Node has properties but no name", props.isEmpty ? expr!.start : props[0].start)
+        }
+        if isInline && (hasProps(result) || dialect != nil || dynamicPrec != 0) {
+            raise("Inline nodes can't have props, dynamic precedence, or a dialect", props[0].start)
+        }
+        if isInline { name = nil }
+        return (name: name, props: result, dialect: dialect, dynamicPrec: dynamicPrec, isInline: isInline, group: group, exported: exported)
+    }
+
+    func finishProp(_ prop: Prop, _ args: [Expression], _ params: [Identifier]) -> String {
+        return prop.value.map { part in
+            if let value = part.value { return value }
+            guard let pos = params.firstIndex(where: { $0.name == part.name }) else {
+                raise("Property refers to '\(part.name ?? "")', but no parameter by that name is in scope", part.start)
+            }
+            let expr = args[pos]
+            if let nameExpr = expr as? NameExpression, nameExpr.args.isEmpty { return nameExpr.id.name }
+            if let litExpr = expr as? LiteralExpression { return litExpr.value }
+            raise("Expression '\(expr)' can not be used as part of a property value", part.start)
+        }.joined()
+    }
+
+    func resolveSpecialization(_ expr: SpecializeExpression) -> Term {
+        let type = expr.type
+        let info = nodeInfo(expr.props, "d")
+        let terminal = normalizeExpr(expr.token)
+        if terminal.count != 1 || terminal[0].terms.count != 1 || !terminal[0].terms[0].terminal {
+            raise("The first argument to '\(type)' must resolve to a token", expr.token.start)
+        }
+        let values: [String]
+        if let lit = isLiteralToken(expr.content) {
+            values = [lit]
+        } else if let choiceExpr = expr.content as? ChoiceExpression,
+                  choiceExpr.exprs.allSatisfy({ isLiteralToken($0) != nil }) {
+            values = choiceExpr.exprs.map { isLiteralToken($0)! }
+        } else {
+            raise("The second argument to '\(expr.type)' must be a literal or choice of literals", expr.content.start)
+        }
+
+        let term = terminal[0].terms[0]
+        var token: Term? = nil
+        if specialized[term.name] == nil { specialized[term.name] = [] }
+        let table = specialized[term.name]!
+        for value in values {
+            if let known = table.first(where: { $0.value == value }) {
+                if known.type != type {
+                    raise("Conflicting specialization types for \(stringToJSON(value)) of \(term.name) (\(type) vs \(known.type))", expr.start)
+                }
+                if known.dialect != info.dialect {
+                    raise("Conflicting dialects for specialization \(stringToJSON(value)) of \(term.name)", expr.start)
+                }
+                if known.name != info.name {
+                    raise("Conflicting names for specialization \(stringToJSON(value)) of \(term.name)", expr.start)
+                }
+                if let token = token, known.term !== token {
+                    raise("Conflicting specialization tokens for \(stringToJSON(value)) of \(term.name)", expr.start)
+                }
+                token = known.term
+            } else {
+                if token == nil {
+                    token = makeTerminal(term.name + "/" + stringToJSON(value), info.name, info.props)
+                    if let dialect = info.dialect {
+                        if tokens.byDialect[dialect] == nil { tokens.byDialect[dialect] = [] }
+                        tokens.byDialect[dialect]!.append(token!)
+                    }
+                }
+                specialized[term.name]!.append(SpecializedEntry(
+                    value: value, name: info.name, term: token!, type: type, dialect: info.dialect
+                ))
+                tokenOrigins[token!.name] = TokenOrigin(spec: term, external: nil, group: nil)
+                if info.name != nil || info.exported != nil {
+                    if info.name == nil { token!.preserve = true }
+                    namedTerms[info.exported ?? info.name!] = token!
+                }
+            }
+        }
+        return token!
+    }
+
+    func findDelimiters(_ expr: Expression) -> (Term, Term)? {
+        guard let seq = expr as? SequenceExpression, seq.exprs.count >= 2 else { return nil }
+        func findToken(_ e: Expression) -> (term: Term, str: String)? {
+            if let litExpr = e as? LiteralExpression {
+                return (term: tokens.getLiteral(litExpr), str: litExpr.value)
+            }
+            if let nameExpr = e as? NameExpression, nameExpr.args.isEmpty {
+                if let rule = ast.rules.first(where: { $0.id.name == nameExpr.id.name }) {
+                    return findToken(rule.expr)
+                }
+                if let tokenRule = tokens.rules.first(where: { $0.id.name == nameExpr.id.name }),
+                   let litExpr = tokenRule.expr as? LiteralExpression {
+                    guard let term = tokens.getToken(nameExpr) else { return nil }
+                    return (term: term, str: litExpr.value)
+                }
+            }
+            return nil
+        }
+        guard let lastToken = findToken(seq.exprs[seq.exprs.count - 1]),
+              lastToken.term.nodeName != nil else { return nil }
+        let brackets = ["()", "[]", "{}", "<>"]
+        guard let bracket = brackets.first(where: {
+            lastToken.str.contains($0[$0.index($0.startIndex, offsetBy: 1)]) &&
+            !lastToken.str.contains($0[$0.startIndex])
+        }) else { return nil }
+        guard let firstToken = findToken(seq.exprs[0]),
+              firstToken.term.nodeName != nil,
+              firstToken.str.contains(bracket[bracket.startIndex]),
+              !firstToken.str.contains(bracket[bracket.index(bracket.startIndex, offsetBy: 1)]) else { return nil }
+        return (firstToken.term, lastToken.term)
+    }
+
+    func registerDynamicPrec(_ term: Term, _ prec: Int) {
+        dynamicRulePrecedences.append((rule: term, prec: prec))
+        term.preserve = true
+    }
+
+    func defineGroup(_ rule: Term, _ group: String, _ ast: RuleDeclaration) {
+        var recur: [Term] = []
+        func getNamed(_ rule: Term) -> [Term] {
+            if rule.nodeName != nil { return [rule] }
+            if recur.contains(where: { $0 === rule }) {
+                raise("Rule '\(ast.id.name)' cannot define a group because it contains a non-named recursive rule ('\(rule.name)')", ast.start)
+            }
+            var result: [Term] = []
+            recur.append(rule)
+            for r in rules where r.name === rule {
+                let names = r.parts.map(getNamed).filter { !$0.isEmpty }
+                if names.count > 1 {
+                    raise("Rule '\(ast.id.name)' cannot define a group because some choices produce multiple named nodes", ast.start)
+                }
+                if let first = names.first { result.append(contentsOf: first) }
+            }
+            recur.removeAll { $0 === rule }
+            return result
+        }
+
+        for name in getNamed(rule) {
+            let existing = name.props["group"]?.split(separator: " ").map(String.init) ?? []
+            let newGroups = (existing + [group]).sorted()
+            name.props["group"] = newGroups.joined(separator: " ")
+        }
+    }
+
+    func checkGroups() {
+        var groups: [String: [Term]] = [:]
+        var nodeNames: Set<String> = []
+        for term in terms.terms {
+            if let nodeName = term.nodeName {
+                nodeNames.insert(nodeName)
+                if let groupStr = term.props["group"] {
+                    for g in groupStr.split(separator: " ").map(String.init) {
+                        if groups[g] == nil { groups[g] = [] }
+                        groups[g]!.append(term)
+                    }
+                }
+            }
+        }
+        let names = Array(groups.keys)
+        for i in 0..<names.count {
+            let name = names[i]
+            let terms = groups[name]!
+            if nodeNames.contains(name) { warn("Group name '\(name)' conflicts with a node of the same name") }
+            for j in (i + 1)..<names.count {
+                let other = groups[names[j]]!
+                if terms.contains(where: { t in other.contains(where: { $0 === t }) }) &&
+                    (terms.count > other.count
+                        ? other.contains(where: { t in !terms.contains(where: { $0 === t }) })
+                        : terms.contains(where: { t in !other.contains(where: { $0 === t }) })) {
+                    warn("Groups '\(name)' and '\(names[j])' overlap without one being a superset of the other")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Free Functions
+
+func isLiteralToken(_ expr: Expression) -> String? {
+    if let litExpr = expr as? LiteralExpression { return litExpr.value }
+    if let seqExpr = expr as? SequenceExpression {
+        var result = ""
+        for sub in seqExpr.exprs {
+            guard let lit = isLiteralToken(sub) else { return nil }
+            result += lit
+        }
+        return result
     }
     return nil
 }
 
-func findSkipStates(_ table: [State], _ startRules: [Term]) -> (Int) -> Bool {
-    var nonSkip: [Int: Bool] = [:]
-    var work: [State] = []
-    func add(_ state: State) {
-        if nonSkip[state.id] == nil {
-            nonSkip[state.id] = true
-            work.append(state)
-        }
-    }
-    for state in table {
-        if let sr = state.startRule, startRules.contains(where: { $0.id == sr.id }) {
-            add(state)
-        }
-    }
-    var i = 0
-    while i < work.count {
-        for a in work[i].actions {
-            if let shift = a as? Shift {
-                add(shift.target)
-            }
-        }
-        for g in work[i].goto {
-            add(g.target)
-        }
-        i += 1
-    }
-    return { id in nonSkip[id] == nil }
+func isExprEmpty(_ expr: Expression) -> Bool {
+    guard let seq = expr as? SequenceExpression else { return false }
+    return seq.exprs.isEmpty
 }
 
-func reduceAction(_ rule: Rule, _ skipInfo: [SkipInfo], depth: Int? = nil) -> Int {
-    let d = depth ?? rule.parts.count
-    return rule.name.id |
-        Action.reduceFlag |
-        (rule.isRepeatWrap && d == rule.parts.count ? Action.repeatFlag : 0) |
-        (skipInfo.contains(where: { $0.rule === rule.name }) ? Action.stayFlag : 0) |
-        (d << Action.reduceDepthShift)
-}
-
-func buildSpecializeTable(_ spec: [[String: Any]]) -> [String: Int] {
-    var table: [String: Int] = [:]
-    for entry in spec {
-        let value = entry["value"] as! String
-        let term = entry["term"] as! Term
-        let type = entry["type"] as! String
-        let code = type == "specialize" ? Specialize.specialize : Specialize.extend
-        table[value] = (term.id << 1) | code
-    }
-    return table
-}
-
-func addToSet<T: AnyObject>(_ set: inout [T], _ value: T) {
-    if !set.contains(where: { $0 === value }) {
-        set.append(value)
-    }
-}
-
-func computeGotoTable(_ states: [State]) -> [UInt16] {
-    var goto: [Int: [Int: [Int]]] = [:]
-    var maxTerm = 0
-    for state in states {
-        for entry in state.goto {
-            maxTerm = max(entry.term.id, maxTerm)
-            if goto[entry.term.id] == nil {
-                goto[entry.term.id] = [:]
-            }
-            if goto[entry.term.id]![entry.target.id] == nil {
-                goto[entry.term.id]![entry.target.id] = []
-            }
-            goto[entry.term.id]![entry.target.id]!.append(state.id)
+func stringToJSON(_ s: String) -> String {
+    var result = "\""
+    for ch in s {
+        switch ch {
+        case "\"": result += "\\\""
+        case "\\": result += "\\\\"
+        case "\n": result += "\\n"
+        case "\r": result += "\\r"
+        case "\t": result += "\\t"
+        default: result += String(ch)
         }
     }
-    let dataBuilder = DataBuilder()
-    var index: [Int] = []
-    let offset = maxTerm + 2
-    for term in 0...maxTerm {
-        if let entries = goto[term] {
-            var termTable: [Int] = []
-            let keys = Array(entries.keys).sorted()
-            for (idx, target) in keys.enumerated() {
-                let list = entries[target]!
-                let isLast = idx == keys.count - 1
-                termTable.append((isLast ? 1 : 0) + (list.count << 1))
-                termTable.append(target)
-                termTable.append(contentsOf: list)
-            }
-            index.append(dataBuilder.storeArray(termTable) + offset)
-        } else {
-            index.append(1)
-        }
-    }
-    if index.contains(where: { $0 > 0xffff }) {
-        fatalError("Goto table too large")
-    }
-    var result: [UInt16] = [UInt16(maxTerm + 1)]
-    result.append(contentsOf: index.map { UInt16($0) })
-    result.append(contentsOf: dataBuilder.data.map { UInt16($0) })
-    return result
-}
-
-func addToSet<T: Equatable>(_ set: inout [T], _ value: T) {
-    if !set.contains(value) {
-        set.append(value)
-    }
+    return result + "\""
 }
 
 func addToProp(_ term: Term, _ prop: String, _ value: String) {
     let cur = term.props[prop]
-    if cur == nil || !cur!.split(separator: " ").contains(where: { $0 == value }) {
+    if cur == nil || !cur!.components(separatedBy: " ").contains(value) {
         term.props[prop] = cur != nil ? cur! + " " + value : value
     }
 }
 
-func buildTokenMasks(_ groups: [TokenGroupSpec]) -> [Int: Int] {
+func buildSpecializeTable(_ spec: [SpecializedEntry]) -> [String: Int] {
+    var table: [String: Int] = [:]
+    for entry in spec {
+        let code = entry.type == "specialize" ? Specialize.Specialize : Specialize.Extend
+        table[entry.value] = (entry.term.id << 1) | code
+    }
+    return table
+}
+
+func reduceAction(_ rule: Rule, _ skipInfo: [SkipInfo], _ depth: Int? = nil) -> Int {
+    let d = depth ?? rule.parts.count
+    return rule.name.id
+        | Action.ReduceFlag
+        | (rule.isRepeatWrap && d == rule.parts.count ? Action.RepeatFlag : 0)
+        | (skipInfo.contains { $0.rule != nil && $0.rule! === rule.name } ? Action.StayFlag : 0)
+        | (d << Action.ReduceDepthShift)
+}
+
+func findArray(_ data: [Int], _ value: [Int]) -> Int {
+    guard !value.isEmpty else { return 0 }
+    var i = 0
+    while i + value.count <= data.count {
+        let slice = data[i..<(i + value.count)]
+        if slice.elementsEqual(value) { return i }
+        i += 1
+    }
+    return -1
+}
+
+func findSkipStates(_ table: [AutState], _ startRules: [Term]) -> (Int) -> Bool {
+    var nonSkip = Set<Int>()
+    for state in table {
+        if let sr = state.startRule, startRules.contains(where: { $0 === sr }) {
+            nonSkip.insert(state.id)
+        }
+    }
+    var work = Array(nonSkip.map { table[$0] })
+    var idx = 0
+    while idx < work.count {
+        let state = work[idx]; idx += 1
+        for a in state.actions {
+            if let shift = a as? Shift {
+                if !nonSkip.contains(shift.target.id) {
+                    nonSkip.insert(shift.target.id)
+                    work.append(shift.target)
+                }
+            }
+        }
+        for a in state.gotoActions {
+            if !nonSkip.contains(a.target.id) {
+                nonSkip.insert(a.target.id)
+                work.append(a.target)
+            }
+        }
+    }
+    return { id in !nonSkip.contains(id) }
+}
+
+func computeGotoTable(_ states: [AutState]) -> [UInt16] {
+    var goto: [Int: [Int: [Int]]] = [:]
+    var maxTerm = 0
+    for state in states {
+        for entry in state.gotoActions {
+            maxTerm = max(entry.term.id, maxTerm)
+            if goto[entry.term.id] == nil { goto[entry.term.id] = [:] }
+            if goto[entry.term.id]![entry.target.id] == nil { goto[entry.term.id]![entry.target.id] = [] }
+            goto[entry.term.id]![entry.target.id]!.append(state.id)
+        }
+    }
+    let data = DataBuilder()
+    var index: [Int] = []
+    let offset = maxTerm + 2
+
+    for term in 0...maxTerm {
+        guard let entries = goto[term] else {
+            index.append(1)
+            continue
+        }
+        var termTable: [Int] = []
+        let keys = Array(entries.keys)
+        for (ki, target) in keys.enumerated() {
+            let list = entries[target]!
+            termTable.append((ki == keys.count - 1 ? 1 : 0) + (list.count << 1))
+            termTable.append(target)
+            for source in list { termTable.append(source) }
+        }
+        index.append(data.storeArray(termTable) + offset)
+    }
+    if index.contains(where: { $0 > 0xffff }) { fatalError("Goto table too large") }
+
+    var result: [UInt16] = [UInt16(maxTerm + 1)]
+    result.append(contentsOf: index.map { UInt16(truncatingIfNeeded: $0) })
+    result.append(contentsOf: data.data.map { UInt16(truncatingIfNeeded: $0) })
+    return result
+}
+
+func buildTokenMasks(_ groups: [BuildTokenGroup]) -> [Int: Int] {
     var masks: [Int: Int] = [:]
     for group in groups {
-        let groupMask = 1 << group.groupID
+        let groupMask = 1 << (group.groupID ?? 0)
         for term in group.tokens {
             masks[term.id] = (masks[term.id] ?? 0) | groupMask
         }
@@ -282,32 +2163,86 @@ func buildTokenMasks(_ groups: [TokenGroupSpec]) -> [Int: Int] {
     return masks
 }
 
-func isEmpty(_ expr: Expression) -> Bool {
-    if let seq = expr as? SequenceExpression {
-        return seq.exprs.isEmpty
+func checkTogether(_ states: [AutState], _ b: Builder, _ skipInfo: [SkipInfo]) -> (Term, Term) -> Bool {
+    var cache: [Int: Bool] = [:]
+    func hasTerm(_ state: AutState, _ term: Term) -> Bool {
+        return state.actions.contains(where: { actionTerm($0) === term }) ||
+            skipInfo[b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0].startTokens.contains(where: { $0 === term })
     }
-    return false
+    return { (a: Term, b: Term) -> Bool in
+        var (a, b) = (a, b)
+        if a.id < b.id { swap(&a, &b) }
+        let key = a.id | (b.id << 16)
+        if let cached = cache[key] { return cached }
+        let result = states.contains { state in hasTerm(state, a) && hasTerm(state, b) }
+        cache[key] = result
+        return result
+    }
 }
 
-func ignored(_ name: String) -> Bool {
-    let first = name.first ?? Character("")
-    return first == "_" || first.isUppercase == false
+func invertRanges(_ ranges: [(Int, Int)]) -> [(Int, Int)] {
+    var pos = 0
+    var result: [(Int, Int)] = []
+    for (a, b) in ranges {
+        if a > pos { result.append((pos, a)) }
+        pos = b
+    }
+    if pos <= MAX_CODE { result.append((pos, MAX_CODE + 1)) }
+    return result
 }
 
-func isExported(_ rule: RuleDeclaration) -> Bool {
-    return rule.props.contains(where: { $0.at && $0.name == "export" })
+func rangeEdges(_ from: State, _ to: State, _ low: Int, _ hi: Int) {
+    var low = low, hi = hi
+    if low < ASTRAL_CODE {
+        if low < GAP_START { from.edge(low, min(hi, GAP_START), to) }
+        if hi > GAP_END { from.edge(max(low, GAP_END), min(hi, MAX_CHAR + 1), to) }
+        low = ASTRAL_CODE
+    }
+    if hi <= ASTRAL_CODE { return }
+
+    let lowScalar = Unicode.Scalar(low)!
+    let hiScalar = Unicode.Scalar(hi - 1)!
+    let lowStr = String(lowScalar)
+    let hiStr = String(hiScalar)
+    let lowA = lowStr.utf16.first!
+    let lowB = lowStr.utf16.last!
+    let hiA = hiStr.utf16.first!
+    let hiB = hiStr.utf16.last!
+    if lowA == hiA {
+        let hop = State()
+        from.edge(Int(lowA), Int(lowA) + 1, hop)
+        hop.edge(Int(lowB), Int(hiB) + 1, to)
+    } else {
+        var midStart = Int(lowA)
+        var midEnd = Int(hiA)
+        if Int(lowB) > LOW_SURR_B {
+            midStart += 1
+            let hop = State()
+            from.edge(Int(lowA), Int(lowA) + 1, hop)
+            hop.edge(Int(lowB), HIGH_SURR_B + 1, to)
+        }
+        if Int(hiB) < HIGH_SURR_B {
+            midEnd -= 1
+            let hop = State()
+            from.edge(Int(hiA), Int(hiA) + 1, hop)
+            hop.edge(LOW_SURR_B, Int(hiB) + 1, to)
+        }
+        if midStart <= midEnd {
+            let hop = State()
+            from.edge(midStart, midEnd + 1, hop)
+            hop.edge(LOW_SURR_B, HIGH_SURR_B + 1, to)
+        }
+    }
 }
 
 func gatherExtTokens(_ b: Builder, _ tokens: [(id: Identifier, props: [Prop])]) -> [String: Term] {
     var result: [String: Term] = [:]
     for token in tokens {
         b.unique(token.id)
-        let info = b.nodeInfo(token.props, allow: "d", defaultName: token.id.name, args: [], params: [])
-        let term = b.makeTerminal(token.id.name, nodeName: info.name, props: info.props)
+        let info = b.nodeInfo(token.props, "d", token.id.name)
+        let term = b.makeTerminal(token.id.name, info.name, info.props)
         if let dialect = info.dialect {
-            if b.tokens.byDialect[dialect] == nil {
-                b.tokens.byDialect[dialect] = []
-            }
+            if b.tokens.byDialect[dialect] == nil { b.tokens.byDialect[dialect] = [] }
             b.tokens.byDialect[dialect]!.append(term)
         }
         b.namedTerms[token.id.name] = term
@@ -318,9 +2253,7 @@ func gatherExtTokens(_ b: Builder, _ tokens: [(id: Identifier, props: [Prop])]) 
 
 func findExtToken(_ b: Builder, _ tokens: [String: Term], _ expr: NameExpression) -> Term? {
     guard let found = tokens[expr.id.name] else { return nil }
-    if !expr.args.isEmpty {
-        b.raise("External tokens cannot take arguments", pos: expr.args[0].start)
-    }
+    if !expr.args.isEmpty { b.raise("External tokens cannot take arguments", expr.args[0].start) }
     b.used(expr.id.name)
     return found
 }
@@ -333,66 +2266,45 @@ func addRel(_ rel: inout [(term: Term, after: [Term])], _ term: Term, _ after: [
     }
 }
 
-func checkTogether(_ states: [State], _ b: Builder, _ skipInfo: [SkipInfo]) -> (Term, Term) -> Bool {
-    var cache: [Int: Bool] = [:]
-    func hasTerm(_ state: State, _ term: Term) -> Bool {
-        if state.actions.contains(where: { a in
-            if let s = a as? Shift { return s.term === term }
-            if let r = a as? Reduce { return r.term === term }
-            return false
-        }) { return true }
-        let si = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
-        return skipInfo[si].startTokens.contains(where: { $0 === term })
-    }
-    return { a, b in
-        let aID = a.id, bID = b.id
-        let first: Term, second: Term
-        if aID < bID { first = b; second = a } else { first = a; second = b }
-        let key = first.id | (second.id << 16)
-        if let cached = cache[key] { return cached }
-        let result = states.contains { state in hasTerm(state, first) && hasTerm(state, second) }
-        cache[key] = result
-        return result
-    }
-}
-
 func inlineRules(_ rules: [Rule], _ preserve: [Term]) -> [Rule] {
-    var currentRules = rules
-    for pass in 0... {
+    var rules = rules
+    var pass = 0
+    while true {
         var inlinable: [String: [Rule]] = [:]
         var found = false
         if pass == 0 {
-            for rule in currentRules {
+            for rule in rules {
                 if rule.name.inline && inlinable[rule.name.name] == nil {
-                    let group = currentRules.filter { $0.name === rule.name }
+                    let group = rules.filter { $0.name === rule.name }
                     if group.contains(where: { $0.parts.contains(where: { $0 === rule.name }) }) { continue }
                     inlinable[rule.name.name] = group
                     found = true
                 }
             }
         }
-        for i in 0..<currentRules.count {
-            let rule = currentRules[i]
+        for i in 0..<rules.count {
+            let rule = rules[i]
             if !rule.name.interesting &&
                 !rule.parts.contains(where: { $0 === rule.name }) &&
                 rule.parts.count < 3 &&
                 !preserve.contains(where: { $0 === rule.name }) &&
-                (rule.parts.count == 1 || currentRules.allSatisfy({ $0.skip === rule.skip || !$0.parts.contains(where: { $0 === rule.name }) })) &&
-                !rule.parts.contains(where: { inlinable[$0.name] != nil }) &&
-                !currentRules.enumerated().contains(where: { $0.offset != i && $0.element.name === rule.name }) {
+                (rule.parts.count == 1 ||
+                    rules.allSatisfy({ other in other.skip === rule.skip || !other.parts.contains(where: { $0 === rule.name }) })) &&
+                !rule.parts.contains(where: { p in inlinable[p.name] != nil }) &&
+                !rules.enumerated().contains(where: { j, r in j != i && r.name === rule.name }) {
                 inlinable[rule.name.name] = [rule]
                 found = true
             }
         }
-        if !found { return currentRules }
+        if !found { return rules }
         var newRules: [Rule] = []
-        for rule in currentRules {
+        for rule in rules {
             if inlinable[rule.name.name] != nil { continue }
             if !rule.parts.contains(where: { inlinable[$0.name] != nil }) {
                 newRules.append(rule)
                 continue
             }
-            func expand(at: Int, conflicts: [Conflicts], parts: [Term]) {
+            func expand(_ at: Int, _ conflicts: [Conflicts], _ parts: [Term]) {
                 if at == rule.parts.count {
                     newRules.append(Rule(name: rule.name, parts: parts, conflicts: conflicts, skip: rule.skip))
                     return
@@ -400,26 +2312,24 @@ func inlineRules(_ rules: [Rule], _ preserve: [Term]) -> [Rule] {
                 let next = rule.parts[at]
                 if let replace = inlinable[next.name] {
                     for r in replace {
-                        var newConflicts = conflicts
-                        if !newConflicts.isEmpty { newConflicts.removeLast() }
-                        newConflicts.append(conflicts[at].join(r.conflicts[0]))
-                        if r.conflicts.count > 1 {
-                            for j in 1..<(r.conflicts.count - 1) {
-                                newConflicts.append(r.conflicts[j])
-                            }
-                        }
-                        newConflicts.append(rule.conflicts[at + 1].join(r.conflicts.last ?? Conflicts.none))
-                        expand(at: at + 1, conflicts: newConflicts, parts: parts + r.parts)
+                        let tail = Array(conflicts.dropLast())
+                        let joined = conflicts[conflicts.count - 1].join(r.conflicts[0])
+                        let middle = Array(r.conflicts.dropFirst().dropLast())
+                        let last: [Conflicts] = at + 1 < rule.conflicts.count
+                            ? [rule.conflicts[at + 1].join(r.conflicts[r.conflicts.count - 1])]
+                            : []
+                        let newConflicts = tail + [joined] + middle + last
+                        expand(at + 1, newConflicts, parts + r.parts)
                     }
                 } else {
-                    expand(at: at + 1, conflicts: conflicts + [rule.conflicts[at + 1]], parts: parts + [next])
+                    expand(at + 1, conflicts + [rule.conflicts[at + 1]], parts + [next])
                 }
             }
-            expand(at: 0, conflicts: [rule.conflicts[0]], parts: [])
+            expand(0, [rule.conflicts[0]], [])
         }
-        currentRules = newRules
+        rules = newRules
+        pass += 1
     }
-    return currentRules
 }
 
 func mergeRules(_ rules: [Rule]) -> [Rule] {
@@ -442,9 +2352,7 @@ func mergeRules(_ rules: [Rule]) -> [Rule] {
             if j - otherStart != size || otherName.interesting { continue }
             var match = true
             for k in 0..<size where match {
-                let a = rules[groupStart + k]
-                let b = rules[otherStart + k]
-                if a.cmpNoName(b) != 0 { match = false }
+                if rules[groupStart + k].cmpNoName(rules[otherStart + k]) != 0 { match = false }
             }
             if match {
                 merged[name.name] = otherName
@@ -453,1642 +2361,50 @@ func mergeRules(_ rules: [Rule]) -> [Rule] {
         }
     }
     if !found { return rules }
-    var newRules: [Rule] = []
-    for rule in rules {
-        if merged[rule.name.name] == nil {
-            let newParts = rule.parts.map { merged[$0.name] ?? $0 }
-            newRules.append(Rule(name: rule.name, parts: newParts, conflicts: rule.conflicts, skip: rule.skip))
+    return rules.compactMap { rule in
+        guard merged[rule.name.name] == nil else { return nil }
+        if rule.parts.contains(where: { merged[$0.name] != nil }) {
+            return Rule(
+                name: rule.name,
+                parts: rule.parts.map { merged[$0.name] ?? $0 },
+                conflicts: rule.conflicts,
+                skip: rule.skip
+            )
         }
+        return rule
     }
-    return newRules
 }
 
 func simplifyRules(_ rules: [Rule], _ preserve: [Term]) -> [Rule] {
     return mergeRules(inlineRules(rules, preserve))
 }
 
-func invertRanges(_ ranges: [(Int, Int)]) -> [(Int, Int)] {
-    var pos = 0
-    var result: [(Int, Int)] = []
-    let maxChar = 0x10ffff
-    for (a, b) in ranges {
-        if a > pos { result.append((pos, a)) }
-        pos = b
-    }
-    if pos <= maxChar { result.append((pos, maxChar + 1)) }
-    return result
+func isIgnored(_ name: String) -> Bool {
+    guard let first = name.first else { return true }
+    return first == "_" || first.isLowercase
 }
 
-func isValidDynamicPrecedence(_ s: String) -> Bool {
-    if s == "10" || s == "-10" { return true }
-    if let v = Int(s), v >= -9 && v <= 9 { return true }
-    return false
+func isExported(_ rule: RuleDeclaration) -> Bool {
+    return rule.props.contains(where: { $0.at && $0.name == "export" })
 }
 
-func rangeEdges(from: TokenBuildState, to: TokenBuildState, low: Int, hi: Int) {
-    var low = low
-    let astral = 0x10000, gapStart = 0xd800, gapEnd = 0xe000, maxChar = 0x10ffff
-    let lowSurrB = 0xdc00, highSurrB = 0xdfff
-    if low < astral {
-        if low < gapStart { from.edge(low, min(hi, gapStart), to) }
-        if hi > gapEnd { from.edge(max(low, gapEnd), min(hi, maxChar + 1), to) }
-        low = astral
-    }
-    if hi <= astral { return }
-    let lowStr = String(UnicodeScalar(low)!)
-    let hiStr = String(UnicodeScalar(hi - 1)!)
-    let lowA = Int(lowStr.utf16[lowStr.utf16.startIndex])
-    let lowB: Int
-    if lowStr.utf16.count > 1 { lowB = Int(lowStr.utf16[lowStr.utf16.index(after: lowStr.utf16.startIndex)]) } else { lowB = 0 }
-    let hiA = Int(hiStr.utf16[hiStr.utf16.startIndex])
-    let hiB: Int
-    if hiStr.utf16.count > 1 { hiB = Int(hiStr.utf16[hiStr.utf16.index(after: hiStr.utf16.startIndex)]) } else { hiB = 0 }
-    if lowA == hiA {
-        let hop = TokenBuildState()
-        from.edge(lowA, lowA + 1, hop)
-        hop.edge(lowB, hiB + 1, to)
-    } else {
-        var midStart = lowA, midEnd = hiA
-        if lowB > lowSurrB {
-            midStart += 1
-            let hop = TokenBuildState()
-            from.edge(lowA, lowA + 1, hop)
-            hop.edge(lowB, highSurrB + 1, to)
-        }
-        if hiB < highSurrB {
-            midEnd -= 1
-            let hop = TokenBuildState()
-            from.edge(hiA, hiA + 1, hop)
-            hop.edge(lowSurrB, hiB + 1, to)
-        }
-        if midStart <= midEnd {
-            let hop = TokenBuildState()
-            from.edge(midStart, midEnd + 1, hop)
-            hop.edge(lowSurrB, highSurrB + 1, to)
-        }
-    }
+// MARK: - Entry Point
+
+public func buildParser(_ text: String, options: BuildOptions = BuildOptions()) throws -> LRParser {
+    let builder = try Builder(text: text, options: options)
+    return try builder.getParser()
 }
 
-class FinishStateContext {
-    var sharedActions: [SharedActions] = []
-    let tokenizers: [Any]
-    let data: DataBuilder
-    var stateArray: [UInt32]
-    let skipData: [Int]
-    let skipInfo: [SkipInfo]
-    let states: [State]
-    let builder: Builder
-    
-    init(tokenizers: [Any], data: DataBuilder, stateArray: [UInt32], skipData: [Int], skipInfo: [SkipInfo], states: [State], builder: Builder) {
-        self.tokenizers = tokenizers
-        self.data = data
-        self.stateArray = stateArray
-        self.skipData = skipData
-        self.skipInfo = skipInfo
-        self.states = states
-        self.builder = builder
-    }
-    
-    func findSharedActions(_ state: State) -> SharedActions? {
-        if state.actions.count < MinSharedActions { return nil }
-        var found: SharedActions?
-        for shared in sharedActions {
-            if (found == nil || shared.actions.count > found!.actions.count) &&
-                shared.actions.allSatisfy({ a in state.actions.contains(where: { b in actionEq(a, b) }) }) {
-                found = shared
-            }
-        }
-        if let f = found { return f }
-        var maxActions: [Any]?
-        for i in (state.id + 1)..<states.count {
-            let other = states[i]
-            if other.defaultReduce != nil || other.actions.count < MinSharedActions { continue }
-            var fill = 0
-            var scratch: [Any] = []
-            for a in state.actions {
-                for b in other.actions {
-                    if actionEq(a, b) {
-                        scratch.append(a)
-                        fill += 1
-                    }
-                }
-            }
-            if fill >= MinSharedActions && (maxActions == nil || maxActions!.count < fill) {
-                maxActions = scratch
-            }
-        }
-        guard let max = maxActions else { return nil }
-        let result = SharedActions(actions: max, addr: storeActions(max, skipReduce: -1, shared: nil))
-        sharedActions.append(result)
-        return result
-    }
-    
-    func storeActions(_ actions: [Any], skipReduce: Int, shared: SharedActions?) -> Int {
-        if skipReduce < 0 && shared != nil && shared!.actions.count == actions.count {
-            return shared!.addr
-        }
-        var data: [Int] = []
-        for action in actions {
-            if let s = shared, s.actions.contains(where: { actionEq($0, action) }) { continue }
-            if let shift = action as? Shift {
-                data.append(shift.term.id)
-                data.append(shift.target.id)
-                data.append(0)
-            } else if let reduce = action as? Reduce {
-                let code = reduceAction(reduce.rule, skipInfo)
-                if code != skipReduce {
-                    data.append(reduce.term.id)
-                    data.append(code & Action.valueMask)
-                    data.append(code >> 16)
-                }
-            }
-        }
-        data.append(Seq.end)
-        if skipReduce > -1 {
-            data.append(Seq.other)
-            data.append(skipReduce & Action.valueMask)
-            data.append(skipReduce >> 16)
-        } else if let s = shared {
-            data.append(Seq.next)
-            data.append(s.addr & 0xffff)
-            data.append(s.addr >> 16)
-        } else {
-            data.append(Seq.done)
-        }
-        return self.data.storeArray(data)
-    }
-    
-    func finish(_ state: State, isSkip: Bool, forcedReduce: Int) {
-        let b = builder
-        let skipID = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
-        let skipTable = skipData[skipID]
-        let skipTerms = skipInfo[skipID].startTokens
-        
-        let defaultReduce = state.defaultReduce != nil ? reduceAction(state.defaultReduce!, skipInfo) : 0
-        var flags: UInt32 = isSkip ? UInt32(StateFlag.skipped) : 0
-        
-        var skipReduce = -1
-        var shared: SharedActions? = nil
-        if defaultReduce == 0 {
-            if isSkip {
-                for action in state.actions {
-                    if let reduce = action as? Reduce, reduce.term.eof {
-                        skipReduce = reduceAction(reduce.rule, skipInfo)
-                    }
-                }
-            }
-            if skipReduce < 0 {
-                shared = findSharedActions(state)
-            }
-        }
-        
-        if state.set.contains(where: { $0.rule.name.top && $0.pos == $0.rule.parts.count }) {
-            flags |= UInt32(StateFlag.accepting)
-        }
-        
-        var external: [Any] = []
-        for i in 0..<(state.actions.count + skipTerms.count) {
-            let term: Term
-            if i < state.actions.count {
-                if let s = state.actions[i] as? Shift { term = s.term }
-                else if let r = state.actions[i] as? Reduce { term = r.term }
-                else { continue }
-            } else {
-                term = skipTerms[i - state.actions.count]
-            }
-            var currentTerm: Term = term
-            while true {
-                if let orig = b.tokenOrigins[currentTerm.name] {
-                    if let spec = orig.spec {
-                        currentTerm = spec
-                        continue
-                    }
-                    if let ext = orig.external as? ExternalTokenSetClass {
-                        if !external.contains(where: { ($0 as AnyObject) === (ext as AnyObject) }) {
-                            external.append(ext)
-                        }
-                    }
-                }
-                break
-            }
-        }
-        
-        var tokenizerMask: UInt32 = 0
-        for i in 0..<tokenizers.count {
-            let tok = tokenizers[i]
-            if external.contains(where: { ($0 as AnyObject) === (tok as AnyObject) }) ||
-                (tok as? TokenGroupSpec)?.groupID == state.tokenGroup {
-                tokenizerMask |= 1 << i
-            }
-        }
-        
-        let base = state.id * ParseState.size
-        stateArray[base + ParseState.flags] = flags
-        stateArray[base + ParseState.actions] = UInt32(storeActions(defaultReduce != 0 ? [] : state.actions, skipReduce: skipReduce, shared: shared))
-        stateArray[base + ParseState.skip] = UInt32(skipTable)
-        stateArray[base + ParseState.tokenizerMask] = tokenizerMask
-        stateArray[base + ParseState.defaultReduce] = UInt32(defaultReduce)
-        stateArray[base + ParseState.forcedReduce] = UInt32(forcedReduce)
-    }
+// MARK: - Regex helper for dynamicPrecedence validation
+
+private struct BuildRegex {
+    static let dynamicPrecPattern = try! NSRegularExpression(pattern: "^-?(?:10|\\d)$")
 }
 
-class TokenGroupSpec {
-    var tokens: [Term]
-    let groupID: Int
-    init(tokens: [Term], groupID: Int) {
-        self.tokens = tokens
-        self.groupID = groupID
+extension String {
+    func matchesRegex(_ pattern: String) -> Bool {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let range = NSRange(startIndex..., in: self)
+        return regex.firstMatch(in: self, range: range) != nil
     }
-}
-
-protocol Namespace {
-    func resolve(_ expr: NameExpression, builder: Builder) -> [Parts]
-}
-
-class TokenArg {
-    let name: String
-    let expr: Expression
-    let scope: [TokenArg]
-    init(name: String, expr: Expression, scope: [TokenArg]) {
-        self.name = name
-        self.expr = expr
-        self.scope = scope
-    }
-}
-
-class BuildingRule {
-    let name: String
-    let start: TokenBuildState
-    let to: TokenBuildState
-    let args: [Expression]
-    init(name: String, start: TokenBuildState, to: TokenBuildState, args: [Expression]) {
-        self.name = name
-        self.start = start
-        self.to = to
-        self.args = args
-    }
-}
-
-class TokenSet {
-    let startState = TokenBuildState()
-    var built: [BuiltRule] = []
-    var building: [BuildingRule] = []
-    var rules: [RuleDeclaration]
-    var byDialect: [Int: [Term]] = [:]
-    var precedenceRelations: [(term: Term, after: [Term])] = []
-    
-    weak var b: Builder?
-    let ast: Any?
-    
-    init(b: Builder, ast: Any?) {
-        self.b = b
-        self.ast = ast
-        self.rules = (ast as? TokenDeclaration)?.rules ?? (ast as? LocalTokenDeclaration)?.rules ?? []
-        for rule in self.rules {
-            b.unique(rule.id)
-        }
-    }
-    
-    func getToken(_ expr: NameExpression) -> Term? {
-        for built in built {
-            if built.matches(expr) { return built.term }
-        }
-        guard let b = b else { return nil }
-        let name = expr.id.name
-        guard let rule = rules.first(where: { $0.id.name == name }) else { return nil }
-        let info = b.nodeInfo(rule.props, allow: "d", defaultName: name, args: expr.args, params: rule.params.count != expr.args.count ? [] : rule.params)
-        let term = b.makeTerminal(expr.toString(), nodeName: info.name, props: info.props)
-        if let dialect = info.dialect {
-            if byDialect[dialect] == nil { byDialect[dialect] = [] }
-            byDialect[dialect]!.append(term)
-        }
-        if (term.nodeType || info.exported != nil) && rule.params.isEmpty {
-            if !term.nodeType { term.preserve = true }
-            b.namedTerms[info.exported ?? name] = term
-        }
-        buildRule(rule, expr: expr, from: startState, to: TokenBuildState(accepting: [term]))
-        built.append(BuiltRule(id: name, args: expr.args, term: term))
-        return term
-    }
-    
-    func buildRule(_ rule: RuleDeclaration, expr: NameExpression, from: TokenBuildState, to: TokenBuildState, args: [TokenArg] = []) {
-        guard let b = b else { return }
-        let name = expr.id.name
-        if rule.params.count != expr.args.count {
-            b.raise("Incorrect number of arguments for token '\(name)'", pos: expr.start)
-        }
-        if let found = building.first(where: { $0.name == name && exprsEq($0.args, expr.args) }) {
-            if found.to === to {
-                from.nullEdge(found.start)
-                return
-            }
-            let lastIdx = self.building.lastIndex(where: { $0.name == name })!
-            let slice = self.building[lastIdx...].map { $0.name }
-            b.raise("Invalid (non-tail) recursion in token rules: \(slice.joined(separator: " -> "))", pos: expr.start)
-        }
-        b.used(rule.id.name)
-        let start = TokenBuildState()
-        from.nullEdge(start)
-        building.append(BuildingRule(name: name, start: start, to: to, args: expr.args))
-        build(b.substituteArgs(rule.expr, args: expr.args, params: rule.params), from: start, to: to, args: expr.args.enumerated().map { TokenArg(name: rule.params[$0].name, expr: $1, scope: args) })
-        building.removeLast()
-    }
-    
-    func build(_ expr: Expression, from: TokenBuildState, to: TokenBuildState, args: [TokenArg]) {
-        guard let b = b else { return }
-        if let nameExpr = expr as? NameExpression {
-            let name = nameExpr.id.name
-            if let arg = args.first(where: { $0.name == name }) {
-                return build(arg.expr, from: from, to: to, args: arg.scope)
-            }
-            var rule: RuleDeclaration?
-            for lt in b.localTokens {
-                if let r = lt.rules.first(where: { $0.id.name == name }) { rule = r; break }
-            }
-            if rule == nil {
-                rule = b.tokens.rules.first(where: { $0.id.name == name })
-            }
-            guard let foundRule = rule else {
-                b.raise("Reference to token rule '\(name)', which isn't found", pos: expr.start)
-            }
-            buildRule(foundRule, expr: nameExpr, from: from, to: to, args: args)
-        } else if let charClass = expr as? CharClass {
-            if let ranges = CharClasses[charClass.type] {
-                for (a, bb) in ranges {
-                    from.edge(a, bb, to)
-                }
-            }
-        } else if expr is ChoiceExpression {
-            for choice in (expr as! ChoiceExpression).exprs {
-                build(choice, from: from, to: to, args: args)
-            }
-        } else if isEmpty(expr) {
-            from.nullEdge(to)
-        } else if let seq = expr as? SequenceExpression {
-            if seq.markers.contains(where: { !$0.isEmpty }) {
-                b.raise("Conflict marker in token expression", pos: seq.markers.first(where: { !$0.isEmpty })![0].start)
-            }
-            var currentFrom = from
-            for (i, e) in seq.exprs.enumerated() {
-                let next = i == seq.exprs.count - 1 ? to : TokenBuildState()
-                build(e, from: currentFrom, to: next, args: args)
-                currentFrom = next
-            }
-        } else if let repeatExpr = expr as? RepeatExpression {
-            if repeatExpr.kind == "*" {
-                let loop = TokenBuildState()
-                from.nullEdge(loop)
-                build(repeatExpr.expr, from: loop, to: loop, args: args)
-                loop.nullEdge(to)
-            } else if repeatExpr.kind == "+" {
-                let loop = TokenBuildState()
-                build(repeatExpr.expr, from: from, to: loop, args: args)
-                build(repeatExpr.expr, from: loop, to: loop, args: args)
-                loop.nullEdge(to)
-            } else {
-                from.nullEdge(to)
-                build(repeatExpr.expr, from: from, to: to, args: args)
-            }
-        } else if let setExpr = expr as? SetExpression {
-            let ranges = setExpr.inverted ? invertRanges(setExpr.ranges) : setExpr.ranges
-            for (a, bb) in ranges {
-                rangeEdges(from: from, to: to, low: a, hi: bb)
-            }
-        } else if let lit = expr as? LiteralExpression {
-            var currentFrom = from
-            let value = lit.value
-            for (i, ch) in value.utf16.enumerated() {
-                let next = i == value.utf16.count - 1 ? to : TokenBuildState()
-                currentFrom.edge(Int(ch), Int(ch) + 1, next)
-                currentFrom = next
-            }
-        } else if expr is AnyExpression {
-            let mid = TokenBuildState()
-            from.edge(0, 0xdc00, to)
-            from.edge(0xdc00, 0x10001, to)
-            from.edge(0xd800, 0xdc00, mid)
-            mid.edge(0xdc00, 0xe000, to)
-        } else {
-            b.raise("Unrecognized expression type in token")
-        }
-    }
-    
-    func takePrecedences() {
-        var rel: [(term: Term, after: [Term])] = []
-        if let ast = self.ast as? TokenDeclaration {
-            for group in ast.precedences {
-                var prev: [Term] = []
-                for item in group.items {
-                    var level: [Term] = []
-                    if let nameExpr = item as? NameExpression {
-                        for built in self.built {
-                            if nameExpr.args.isEmpty ? built.id == nameExpr.id.name : built.matches(nameExpr) {
-                                level.append(built.term)
-                            }
-                        }
-                    } else if let lit = item as? LiteralExpression {
-                        let id = "\"\(lit.value)\""
-                        if let found = built.first(where: { $0.id == id }) {
-                            level.append(found.term)
-                        }
-                    }
-                    if level.isEmpty {
-                        b?.warn("Precedence specified for unknown token \(item)", pos: item.start)
-                    }
-                    for term in level {
-                        addRel(&rel, term, prev)
-                    }
-                    prev = prev + level
-                }
-            }
-        }
-        self.precedenceRelations = rel
-    }
-    
-    func precededBy(_ a: Term, _ b: Term) -> Bool {
-        return precedenceRelations.contains(where: { $0.term === a && $0.after.contains(where: { $0 === b }) })
-    }
-    
-    func buildPrecTable(_ softConflicts: [ConflictSpec]) -> [Int] {
-        var precTable: [Int] = []
-        var rel = precedenceRelations
-        for conflict in softConflicts {
-            if conflict.soft != 0 {
-                var a = conflict.a, b = conflict.b
-                if conflict.soft < 0 { swap(&a, &b) }
-                if !rel.contains(where: { $0.term === a }) || !rel.contains(where: { $0.term === b }) { continue }
-                addRel(&rel, b, [a])
-                addRel(&rel, a, [])
-            }
-        }
-        while !rel.isEmpty {
-            var found = false
-            for i in 0..<rel.count {
-                if rel[i].after.allSatisfy({ precTable.contains($0.id) }) {
-                    precTable.append(rel[i].term.id)
-                    if rel.count == 1 { found = true; break }
-                    rel[i] = rel[rel.count - 1]
-                    rel.removeLast()
-                    found = true
-                    break
-                }
-            }
-            if !found {
-                b?.raise("Cyclic token precedence relation between \(rel.map { String(describing: $0.term) }.joined(separator: ", "))")
-            }
-        }
-        return precTable
-    }
-}
-
-class ExternalTokenSetClass {
-    let tokens: [String: Term]
-    weak var b: Builder?
-    let ast: ExternalTokenDeclaration
-    
-    init(b: Builder, ast: ExternalTokenDeclaration) {
-        self.b = b
-        self.ast = ast
-        self.tokens = gatherExtTokens(b, ast.tokens)
-        for (_, term) in self.tokens {
-            b.tokenOrigins[term.name] = TokenOrigin(spec: nil, external: self, group: nil)
-        }
-    }
-    
-    func getToken(_ expr: NameExpression) -> Term? {
-        return findExtToken(b!, tokens, expr)
-    }
-    
-    func checkConflicts(_ states: [State], _ skipInfo: [SkipInfo]) {
-        guard let b = b else { return }
-        var conflicting: [Term] = []
-        for id in ast.conflicts {
-            guard let term = b.namedTerms[id.name] else {
-                b.warn("Unknown conflict term '\(id.name)'")
-                continue
-            }
-            if !term.terminal {
-                b.warn("Term '\(id.name)' isn't a terminal and cannot be used in a token conflict.")
-            } else if tokens[id.name] != nil {
-                b.warn("External token set specifying a conflict with one of its own tokens ('\(id.name)')")
-            } else {
-                conflicting.append(term)
-            }
-        }
-        if !conflicting.isEmpty {
-            for state in states {
-                let si = b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0
-                let skip = skipInfo[si].startTokens
-                var relevant = false
-                var conflict: Term?
-                for i in 0..<(state.actions.count + skip.count) {
-                    let term: Term
-                    if i < state.actions.count {
-                        if let s = state.actions[i] as? Shift { term = s.term }
-                        else if let r = state.actions[i] as? Reduce { term = r.term }
-                        else { continue }
-                    } else {
-                        term = skip[i - state.actions.count]
-                    }
-                    if tokens[term.name] != nil {
-                        relevant = true
-                    } else if conflicting.contains(where: { $0 === term }) {
-                        conflict = term
-                    }
-                }
-                if relevant, let c = conflict {
-                    b.raise("Tokens from external group used together with conflicting token '\(c.name)'\nAfter: \(state.set[0].trail())", pos: ast.start)
-                }
-            }
-        }
-    }
-    
-    func createExternal() -> ExternalTokenizer? {
-        guard let b = b, let extTokenizer = b.options.externalTokenizer else { return nil }
-        return extTokenizer(ast.id.name, b.termTable)
-    }
-}
-
-class ExternalSpecializerClass {
-    var term: Term?
-    let tokens: [String: Term]
-    weak var b: Builder?
-    let ast: ExternalSpecializeDeclaration
-    
-    init(b: Builder, ast: ExternalSpecializeDeclaration) {
-        self.b = b
-        self.ast = ast
-        self.tokens = gatherExtTokens(b, ast.tokens)
-    }
-    
-    func finish() {
-        guard let b = b else { return }
-        let terms = b.normalizeExpr(ast.token)
-        if terms.count != 1 || terms[0].terms.count != 1 || !terms[0].terms[0].terminal {
-            b.raise("The token expression to '@external \(ast.type)' must resolve to a token", pos: ast.token.start)
-        }
-        self.term = terms[0].terms[0]
-        for (_, t) in tokens {
-            b.tokenOrigins[t.name] = TokenOrigin(spec: self.term, external: self, group: nil)
-        }
-    }
-    
-    func getToken(_ expr: NameExpression) -> Term? {
-        return findExtToken(b!, tokens, expr)
-    }
-}
-
-struct TokenOrigin {
-    let spec: Term?
-    let external: AnyObject?
-    let group: AnyObject?
-}
-
-struct ConflictSpec {
-    let a: Term
-    let b: Term
-    let soft: Int
-    let exampleA: String
-    let exampleB: String?
-}
-
-class MainTokenSet: TokenSet {
-    var explicitConflicts: [(a: Term, b: Term)] = []
-    
-    init(b: Builder, ast: TokenDeclaration?) {
-        super.init(b: b, ast: ast)
-    }
-    
-    func getLiteral(_ expr: LiteralExpression) -> Term? {
-        let id = "\"\(expr.value)\""
-        for built in built {
-            if built.id == id { return built.term }
-        }
-        guard let b = b else { return nil }
-        var name: String? = nil
-        var props: Props = [:]
-        var dialect: Int? = nil
-        var exported: String? = nil
-        if let decl = (self.ast as? TokenDeclaration)?.literals.first(where: { $0.literal == expr.value }) {
-            let info = b.nodeInfo(decl.props, allow: "da", defaultName: expr.value, args: [], params: [])
-            name = info.name
-            props = info.props
-            dialect = info.dialect
-            exported = info.exported
-        }
-        let term = b.makeTerminal(id, nodeName: name, props: props)
-        if let d = dialect {
-            if byDialect[d] == nil { byDialect[d] = [] }
-            byDialect[d]!.append(term)
-        }
-        if let exp = exported { b.namedTerms[exp] = term }
-        build(expr, from: startState, to: TokenBuildState(accepting: [term]), args: [])
-        built.append(BuiltRule(id: id, args: [], term: term))
-        return term
-    }
-    
-    func takeConflicts() {
-        guard let ast = self.ast as? TokenDeclaration else { return }
-        let resolve = { (expr: Expression) -> Term? in
-            if let nameExpr = expr as? NameExpression {
-                for built in self.built {
-                    if built.matches(nameExpr) { return built.term }
-                }
-            } else if let lit = expr as? LiteralExpression {
-                let id = "\"\(lit.value)\""
-                if let found = self.built.first(where: { $0.id == id }) { return found.term }
-            }
-            self.b?.warn("Conflict specified for unknown token \(expr)", pos: expr.start)
-            return nil
-        }
-        for c in ast.conflicts {
-            guard let a = resolve(c.a), let b = resolve(c.b) else { continue }
-            if a.id < b.id {
-                explicitConflicts.append((a: b, b: a))
-            } else {
-                explicitConflicts.append((a: a, b: b))
-            }
-        }
-    }
-    
-    func buildTokenGroups(_ states: [State], _ skipInfo: [SkipInfo], _ startID: Int) -> (tokenGroups: [TokenGroupSpec], tokenPrec: [Int], tokenData: [UInt16]) {
-        guard let b = b else { fatalError("Builder is nil") }
-        let tokens = startState.compile()
-        if !tokens.accepting.isEmpty {
-            let name = tokens.accepting[0].name
-            b.raise("Grammar contains zero-length tokens (in '\(name)')", pos: rules.first(where: { $0.id.name == name })?.start ?? 0)
-        }
-        let checkTogetherFn = checkTogether(states, b, skipInfo)
-        var allConflicts = tokens.findConflicts(occurTogether: checkTogetherFn).filter { c in
-            !precededBy(c.a, c.b) && !precededBy(c.b, c.a)
-        }
-        for ec in explicitConflicts {
-            if !allConflicts.contains(where: { $0.a === ec.a && $0.b === ec.b }) {
-                allConflicts.append(Conflict(a: ec.a, b: ec.b, soft: 0, exampleA: "", exampleB: nil))
-            }
-        }
-        let softConflicts = allConflicts.filter { $0.soft != 0 }
-        let hardConflicts = allConflicts.filter { $0.soft == 0 }
-        var errors: [(conflict: Conflict, error: String)] = []
-        var groups: [TokenGroupSpec] = []
-        for state in states {
-            if state.defaultReduce != nil || state.tokenGroup > -1 { continue }
-            var terms: [Term] = []
-            var incompatible: [Term] = []
-            let skip = skipInfo[b.skipRules.firstIndex(where: { $0 === state.skip }) ?? 0].startTokens
-            for term in skip {
-                if state.actions.contains(where: { a in
-                    if let s = a as? Shift { return s.term === term }
-                    if let r = a as? Reduce { return r.term === term }
-                    return false
-                }) {
-                    b.raise("Use of token \(term.name) conflicts with skip rule")
-                }
-            }
-            var stateTerms: [Term] = []
-            for i in 0..<(state.actions.count + skip.count) {
-                let baseTerm: Term
-                if i < state.actions.count {
-                    if let s = state.actions[i] as? Shift { baseTerm = s.term }
-                    else if let r = state.actions[i] as? Reduce { baseTerm = r.term }
-                    else { continue }
-                } else {
-                    baseTerm = skip[i - state.actions.count]
-                }
-                let orig = b.tokenOrigins[baseTerm.name]
-                if let spec = orig?.spec {
-                    addToSet(&stateTerms, spec)
-                } else if orig?.external != nil { continue }
-                else { addToSet(&stateTerms, baseTerm) }
-            }
-            if stateTerms.isEmpty { continue }
-            for term in stateTerms {
-                for conflict in hardConflicts {
-                    let conflicting: Term? = conflict.a === term ? conflict.b : conflict.b === term ? conflict.a : nil
-                    guard let c = conflicting else { continue }
-                    if stateTerms.contains(where: { $0 === c }) && !errors.contains(where: { $0.conflict.a === conflict.a && $0.conflict.b === conflict.b }) {
-                        let example = conflict.exampleA.isEmpty ? "" : " (example: \(conflict.exampleA)\(conflict.exampleB != nil ? " vs \(conflict.exampleB!)" : ""))"
-                        errors.append((conflict: conflict, error: "Overlapping tokens \(term.name) and \(c.name) used in same context\(example)\nAfter: \(state.set[0].trail())"))
-                    }
-                    addToSet(&terms, term)
-                    addToSet(&incompatible, c)
-                }
-            }
-            var tokenGroup: TokenGroupSpec? = nil
-            for group in groups {
-                if incompatible.contains(where: { group.tokens.contains($0) }) { continue }
-                for term in terms {
-                    if !group.tokens.contains(where: { $0 === term }) { group.tokens.append(term) }
-                }
-                tokenGroup = group
-                break
-            }
-            if tokenGroup == nil {
-                tokenGroup = TokenGroupSpec(tokens: terms, groupID: groups.count + startID)
-                groups.append(tokenGroup!)
-            }
-            state.tokenGroup = tokenGroup!.groupID
-        }
-        if !errors.isEmpty {
-            b.raise(errors.map { $0.error }.joined(separator: "\n\n"))
-        }
-        if groups.count + startID > 16 {
-            b.raise("Too many different token groups (\(groups.count)) to represent them as a 16-bit bitfield")
-        }
-        let precTable = buildPrecTable(softConflicts.map { ConflictSpec(a: $0.a, b: $0.b, soft: $0.soft, exampleA: $0.exampleA, exampleB: $0.exampleB) })
-        let tokenData = tokens.toArray(groupMasks: buildTokenMasks(groups), precedence: precTable)
-        return (tokenGroups: groups, tokenPrec: precTable, tokenData: tokenData)
-    }
-}
-
-class LocalTokenSet: TokenSet {
-    var fallback: Term? = nil
-    
-    init(b: Builder, ast: LocalTokenDeclaration) {
-        super.init(b: b, ast: ast)
-        if let fb = ast.fallback { b.unique(fb.id) }
-    }
-    
-    override func getToken(_ expr: NameExpression) -> Term? {
-        guard let b = b else { return nil }
-        if let fb = self.ast as? LocalTokenDeclaration, let fallbackDecl = fb.fallback, fallbackDecl.id.name == expr.id.name {
-            if !expr.args.isEmpty { b.raise("Incorrect number of arguments for \(expr.id.name)", pos: expr.start) }
-            if self.fallback == nil {
-                let info = b.nodeInfo(fallbackDecl.props, allow: "", defaultName: expr.id.name, args: [], params: [])
-                let term = b.makeTerminal(expr.id.name, nodeName: info.name, props: info.props)
-                if term.nodeType || info.exported != nil {
-                    if !term.nodeType { term.preserve = true }
-                    b.namedTerms[info.exported ?? expr.id.name] = term
-                }
-                b.used(expr.id.name)
-                self.fallback = term
-            }
-            if let t = self.fallback, b.tokenOrigins[t.name] == nil {
-                b.tokenOrigins[t.name] = TokenOrigin(spec: nil, external: nil, group: self)
-            }
-            return self.fallback
-        }
-        let term = super.getToken(expr)
-        if let t = term, b.tokenOrigins[t.name] == nil {
-            b.tokenOrigins[t.name] = TokenOrigin(spec: nil, external: nil, group: self)
-        }
-        return term
-    }
-    
-    func buildLocalGroup(_ states: [State], _ skipInfo: [SkipInfo], _ id: Int) -> Any {
-        let tokens = startState.compile()
-        if !tokens.accepting.isEmpty {
-            b?.raise("Grammar contains zero-length tokens (in '\(tokens.accepting[0].name)')", pos: rules.first(where: { $0.id.name == tokens.accepting[0].name })?.start ?? 0)
-        }
-        for c in tokens.findConflicts(occurTogether: { _, _ in true }) {
-            if !precededBy(c.a, c.b) && !precededBy(c.b, c.a) {
-                let example = c.exampleA.isEmpty ? "" : " (example: \(c.exampleA))"
-                b?.raise("Overlapping tokens \(c.a.name) and \(c.b.name) in local token group\(example)")
-            }
-        }
-        for state in states {
-            if state.defaultReduce != nil { continue }
-            var usesThis: Term? = nil
-            var usesOther: Term? = nil
-            for action in state.actions {
-                if let s = action as? Shift {
-                    var orig = b?.tokenOrigins[s.term.name]
-                    while let spec = orig?.spec { orig = b?.tokenOrigins[spec.name] }
-                    if orig?.group as? LocalTokenSet === self { usesThis = s.term }
-                    else { usesOther = s.term }
-                } else if let r = action as? Reduce {
-                    var orig = b?.tokenOrigins[r.term.name]
-                    while let spec = orig?.spec { orig = b?.tokenOrigins[spec.name] }
-                    if orig?.group as? LocalTokenSet === self { usesThis = r.term }
-                    else { usesOther = r.term }
-                }
-            }
-            if usesThis != nil {
-                if usesOther != nil {
-                    b?.raise("Tokens from a local token group used together with other tokens (\(usesThis!.name) with \(usesOther!.name))")
-                }
-                state.tokenGroup = id
-            }
-        }
-        return id
-    }
-}
-
-class Builder {
-    var ast: GrammarDeclaration!
-    var input: GrammarInput!
-    var terms = TermSet()
-    var tokens: MainTokenSet!
-    var localTokens: [LocalTokenSet] = []
-    var externalTokens: [ExternalTokenSetClass] = []
-    var externalSpecializers: [ExternalSpecializerClass] = []
-    var specialized: [String: [[String: Any]]] = [:]
-    var tokenOrigins: [String: TokenOrigin] = [:]
-    var rules: [Rule] = []
-    var built: [BuiltRule] = []
-    var ruleNames: [String: Identifier?] = [:]
-    var namedTerms: [String: Term] = [:]
-    var termTable: [String: Int] = [:]
-    var knownProps: [String: (prop: Any, source: (name: String, from: String?))] = [:]
-    var dialects: [String] = []
-    var dynamicRulePrecedences: [(rule: Term, prec: Int)] = []
-    var definedGroups: [(name: Term, group: String, rule: RuleDeclaration)] = []
-    var astRules: [(skip: Term, rule: RuleDeclaration)] = []
-    var currentSkip: [Term] = []
-    var skipRules: [Term] = []
-    let options: BuildOptions
-    
-    init(_ text: String, options: BuildOptions) {
-        self.options = options
-        self.input = GrammarInput(string: text, fileName: options.fileName)
-        self.ast = input!.parse()
-        self.dialects = ast.dialects.map { $0.name }
-        self.tokens = MainTokenSet(b: self, ast: ast.tokens)
-        self.localTokens = ast.localTokens.map { LocalTokenSet(b: self, ast: $0) }
-        self.externalTokens = ast.externalTokens.map { ExternalTokenSetClass(b: self, ast: $0) }
-        self.externalSpecializers = ast.externalSpecializers.map { ExternalSpecializerClass(b: self, ast: $0) }
-        
-        let noSkip = newName("%noskip", nodeName: true)
-        currentSkip.append(noSkip)
-        defineRule(noSkip, choices: [])
-        let mainSkip = ast.mainSkip != nil ? newName("%mainskip", nodeName: true) : noSkip
-        var scopedSkip: [Term] = []
-        var topRules: [(rule: RuleDeclaration, skip: Term)] = []
-        for rule in ast.rules { astRules.append((skip: mainSkip, rule: rule)) }
-        for rule in ast.topRules { topRules.append((rule: rule, skip: mainSkip)) }
-        for scoped in ast.scopedSkip {
-            var skip = noSkip
-            if let found = ast.scopedSkip.firstIndex(where: { exprEq($0.expr, scoped.expr) }), found < scopedSkip.count {
-                skip = scopedSkip[found]
-            } else if ast.mainSkip != nil && exprEq(scoped.expr, ast.mainSkip!) {
-                skip = mainSkip
-            } else if !isEmpty(scoped.expr) {
-                skip = newName("%skip", nodeName: true)
-            }
-            scopedSkip.append(skip)
-            for rule in scoped.rules { astRules.append((skip: skip, rule: rule)) }
-            for rule in scoped.topRules { topRules.append((rule: rule, skip: skip)) }
-        }
-        for r in astRules { unique(r.rule.id) }
-        skipRules = mainSkip === noSkip ? [mainSkip] : [noSkip, mainSkip]
-        if mainSkip !== noSkip { defineRule(mainSkip, choices: normalizeExpr(ast.mainSkip!)) }
-        for i in 0..<ast.scopedSkip.count {
-            let skip = scopedSkip[i]
-            if !skipRules.contains(where: { $0 === skip }) {
-                skipRules.append(skip)
-                if skip !== noSkip { defineRule(skip, choices: normalizeExpr(ast.scopedSkip[i].expr)) }
-            }
-        }
-        currentSkip.removeLast()
-        for tr in topRules.sorted(by: { $0.rule.start < $1.rule.start }) {
-            unique(tr.rule.id)
-            used(tr.rule.id.name)
-            currentSkip.append(tr.skip)
-            let info = nodeInfo(tr.rule.props, allow: "a", defaultName: tr.rule.id.name, args: [], params: [], expr: tr.rule.expr)
-            let term = terms.makeTop(nodeName: info.name, props: info.props)
-            namedTerms[info.name ?? tr.rule.id.name] = term
-            defineRule(term, choices: normalizeExpr(tr.rule.expr))
-            currentSkip.removeLast()
-        }
-        for ext in externalSpecializers { ext.finish() }
-        for r in astRules {
-            if ruleNames[r.rule.id.name] != nil && isExported(r.rule) && r.rule.params.isEmpty {
-                _ = buildRule(r.rule, args: [], skip: r.skip, inline: false)
-                if let seq = r.rule.expr as? SequenceExpression, seq.exprs.isEmpty { used(r.rule.id.name) }
-            }
-        }
-        for (_, value) in ruleNames {
-            if let v = value { warn("Unused rule '\(v.name)'", pos: v.start) }
-        }
-        tokens.takePrecedences()
-        tokens.takeConflicts()
-        for lt in localTokens { lt.takePrecedences() }
-        for dg in definedGroups { defineGroup(name: dg.name, group: dg.group, rule: dg.rule) }
-        checkGroups()
-    }
-    
-    func unique(_ id: Identifier) {
-        if ruleNames[id.name] != nil { raise("Duplicate definition of rule '\(id.name)'", pos: id.start) }
-        ruleNames[id.name] = id
-    }
-    
-    func used(_ name: String) { ruleNames[name] = nil }
-    
-    func newName(_ base: String, nodeName: Any? = nil, props: Props = [:]) -> Term {
-        for i in (nodeName != nil ? 0 : 1)... {
-            let name = i == 0 ? base : "\(base)-\(i)"
-            if terms.names[name] == nil {
-                return terms.makeNonTerminal(name, nodeName: nodeName as? String ?? nil, props: props)
-            }
-        }
-        fatalError("Could not create unique name for \(base)")
-    }
-    
-    func prepareParser() -> (states: [UInt32], stateData: [UInt16], goto: [UInt16], nodeNames: String, nodeProps: [[String: Any]]?, skippedTypes: [Int], maxTerm: Int, repeatNodeCount: Int, tokenizers: [Any], tokenData: String, topRules: [String: [Int]], dialects: [String: Int], dynamicPrecedences: [Int: Int]?, specialized: [Any], tokenPrec: Int, termNames: [Int: String]) {
-         let simplifiedRules = simplifyRules(rules, Array(skipRules) + terms.tops)
-         let (nodeTypes, termNames, minRepeatTerm, maxTerm) = terms.finish(rules: simplifiedRules)
-        for (prop, t) in namedTerms { termTable[prop] = t.id }
-        var startTerms = Array(terms.tops)
-        let first = computeFirstSets(terms: terms)
-        var skipInfo: [SkipInfo] = []
-        for (id, name) in skipRules.enumerated() {
-            var skip: [Term] = []
-            var startTokens: [Term] = []
-            var rules: [Rule] = []
-            for rule in name.rules {
-                if rule.parts.isEmpty { continue }
-                let start = rule.parts[0]
-                for t in (start.terminal ? [start] : (first[start.name] ?? []).compactMap({ $0 })) {
-                    if !startTokens.contains(where: { $0 === t }) { startTokens.append(t) }
-                }
-                if start.terminal && rule.parts.count == 1 && !rules.contains(where: { $0 !== rule && $0.parts[0] === start }) {
-                    skip.append(start)
-                } else { rules.append(rule) }
-            }
-            name.rules = rules
-            if !rules.isEmpty { startTerms.append(name) }
-            skipInfo.append(SkipInfo(skip: skip, rule: rules.isEmpty ? nil : name, startTokens: startTokens, id: id))
-        }
-        let fullTable = buildFullAutomaton(terms: terms, startTerms: startTerms, first: first)
-        let localTokenResults = localTokens.enumerated().map { (i, grp) in grp.buildLocalGroup(fullTable, skipInfo, i) }
-        let (tokenGroups, tokenPrec, tokenData) = tokens.buildTokenGroups(fullTable, skipInfo, localTokens.count)
-        for ext in externalTokens { ext.checkConflicts(fullTable, skipInfo) }
-        let table = finishAutomaton(fullTable)
-        let skipStateFn = findSkipStates(table, terms.tops)
-        var specializedList: [Any] = []
-        for ext in externalSpecializers { specializedList.append(ext) }
-        for (name, entries) in specialized {
-            specializedList.append(["token": terms.names[name] as Any, "table": buildSpecializeTable(entries)])
-        }
-        let tokStart = { (tokenizer: Any) -> Int in
-            if let ext = tokenizer as? ExternalTokenSetClass { return ext.ast.start }
-            if tokenizer is TokenGroupSpec { return (self.ast.tokens?.start ?? -1) }
-            return -1
-        }
-        var tokenizers: [Any] = (tokenGroups as [Any]) + externalTokens
-        tokenizers.sort { a, b in tokStart(a) < tokStart(b) }
-        tokenizers += localTokenResults
-        let data = DataBuilder()
-        let skipData = skipInfo.map { info -> Int in
-            var actions: [Int] = []
-            for term in info.skip { actions.append(term.id); actions.append(0); actions.append(Action.stayFlag >> 16) }
-            if let rule = info.rule {
-                if let state = table.first(where: { $0.startRule?.id == rule.id }) {
-                    for action in state.actions {
-                        if let s = action as? Shift { actions.append(s.term.id); actions.append(state.id); actions.append(Action.gotoFlag >> 16) }
-                    }
-                }
-            }
-            actions.append(Seq.end); actions.append(Seq.done)
-            return data.storeArray(actions)
-        }
-        var states = Array(repeating: UInt32(0), count: table.count * ParseState.size)
-        let forceReductions = computeForceReductions(table, skipInfo)
-        let finishCx = FinishStateContext(tokenizers: tokenizers, data: data, stateArray: states, skipData: skipData, skipInfo: skipInfo, states: table, builder: self)
-        for s in table {
-            finishCx.finish(s, isSkip: skipStateFn(s.id), forcedReduce: forceReductions[s.id])
-        }
-        states = finishCx.stateArray
-        var dialectData: [String: Int] = [:]
-        for i in 0..<dialects.count {
-            dialectData[dialects[i]] = data.storeArray((tokens.byDialect[i] ?? []).map(\.id) + [Seq.end])
-        }
-        var dynamicPrecs: [Int: Int]? = nil
-        if !dynamicRulePrecedences.isEmpty {
-            dynamicPrecs = [:]
-            for dp in dynamicRulePrecedences { dynamicPrecs![dp.rule.id] = dp.prec }
-        }
-        var topRuleData: [String: [Int]] = [:]
-        for term in terms.tops {
-            if let name = term.nodeName, let state = table.first(where: { $0.startRule?.id == term.id }) {
-                topRuleData[name] = [state.id, term.id]
-            }
-        }
-        let precTable = data.storeArray(tokenPrec + [Seq.end])
-        let (nodeProps, skippedTypes) = gatherNodeProps(nodeTypes: nodeTypes)
-        
-        let gotoTable = computeGotoTable(table)
-        
-        return (
-            states: states,
-            stateData: data.finish(),
-            goto: gotoTable,
-            nodeNames: nodeTypes.filter { $0.id < minRepeatTerm }.compactMap(\.nodeName).joined(separator: " "),
-            nodeProps: nodeProps,
-            skippedTypes: skippedTypes,
-            maxTerm: maxTerm,
-            repeatNodeCount: nodeTypes.count - minRepeatTerm,
-            tokenizers: tokenizers,
-            tokenData: encodeArray(tokenData.map { Int($0) }),
-            topRules: topRuleData,
-            dialects: dialectData,
-            dynamicPrecedences: dynamicPrecs,
-            specialized: specializedList,
-            tokenPrec: precTable,
-            termNames: termNames
-        )
-    }
-    
-    func getParser() -> LRParser {
-        let result = prepareParser()
-        var specialized: [SpecializerSpec] = []
-        for item in result.specialized {
-            if let ext = item as? ExternalSpecializerClass {
-                guard let extTokenizer = options.externalSpecializer else {
-                    fatalError("External specializer required for \(ext.ast.id.name)")
-                }
-                let fn = extTokenizer(ext.ast.id.name, termTable)
-                let mask = ext.ast.type == "extend" ? Specialize.extend : Specialize.specialize
-                specialized.append(SpecializerSpec(
-                    term: ext.term?.id ?? -1,
-                    get: { value, stack in (fn(value, stack) << 1) | mask },
-                    external: fn,
-                    extend: ext.ast.type == "extend"
-                ))
-            } else if let dict = item as? [String: Any], let token = dict["token"] as? Term, let table = dict["table"] as? [String: Int] {
-                specialized.append(SpecializerSpec(
-                    term: token.id,
-                    get: { value, _ in table[value] ?? -1 },
-                    external: nil,
-                    extend: false
-                ))
-            }
-        }
-        
-        var processedTokenizers: [Any] = []
-        for tok in result.tokenizers {
-            if let ext = tok as? ExternalTokenSetClass {
-                if let t = ext.createExternal() {
-                    processedTokenizers.append(t)
-                } else {
-                    processedTokenizers.append(-1)
-                }
-            } else if let grp = tok as? TokenGroupSpec {
-                processedTokenizers.append(grp.groupID)
-            } else {
-                processedTokenizers.append(tok)
-            }
-        }
-        
-        var nodePropsFinal: [[Any]]? = nil
-        if let rawProps = result.nodeProps {
-            nodePropsFinal = rawProps.map { entry in
-                let ep = entry
-                let propName = ep["prop"] as! String
-                let terms = ep["terms"] as! [Any]
-                let known = knownProps[propName]!
-                return [known.prop] + terms
-            }
-        }
-        
-        var context: ContextTracker<Any>? = nil
-        if ast.context != nil {
-            if let fn = options.contextTracker as? ((_: [String: Int]) -> ContextTracker<Any>) {
-                context = fn(termTable)
-            } else if let ct = options.contextTracker as? ContextTracker<Any> {
-                context = ct
-            }
-        }
-        
-        let spec = ParserSpec(
-            version: File.version,
-            states: StringOrArray.uint32Array(result.states),
-            stateData: StringOrArray.uint16Array(result.stateData),
-            goto: StringOrArray.uint16Array(result.goto),
-            nodeNames: result.nodeNames,
-            maxTerm: result.maxTerm,
-            repeatNodeCount: result.repeatNodeCount,
-            nodeProps: nodePropsFinal,
-            propSources: options.externalPropSource.map { fn in
-                ast.externalPropSources.map { fn($0.id.name) }
-            },
-            skippedNodes: result.skippedTypes,
-            tokenData: result.tokenData,
-            tokenizers: processedTokenizers,
-            topRules: result.topRules,
-            context: context,
-            dialects: result.dialects,
-            dynamicPrecedences: result.dynamicPrecedences,
-            specialized: specialized,
-            tokenPrec: result.tokenPrec,
-            termNames: result.termNames
-        )
-        return LRParser(spec: spec)
-    }
-    
-    func gatherNonSkippedNodes() -> Set<Int> {
-        var seen: Set<Int> = []
-        var work: [Term] = []
-        for t in terms.tops { seen.insert(t.id); work.append(t) }
-        var i = 0
-        while i < work.count {
-            for rule in work[i].rules {
-                for part in rule.parts {
-                    if !seen.contains(part.id) { seen.insert(part.id); work.append(part) }
-                }
-            }
-            i += 1
-        }
-        return seen
-    }
-    
-    func gatherNodeProps(nodeTypes: [Term]) -> (nodeProps: [[String: Any]]?, skippedTypes: [Int]) {
-        let notSkipped = gatherNonSkippedNodes()
-        var skippedTypes: [Int] = []
-        var nodeProps: [[String: Any]] = []
-        for type in nodeTypes {
-            if !notSkipped.contains(type.id) && !type.error { skippedTypes.append(type.id) }
-            for (propName, propValue) in type.props {
-                let known = knownProps[propName]
-                if known == nil { raise("No known prop type for \(propName)") }
-                if known!.source.from == nil && (known!.source.name == "repeated" || known!.source.name == "error") { continue }
-                var rec = nodeProps.firstIndex(where: { $0["prop"] as! String == propName })
-                if rec == nil {
-                    rec = nodeProps.count
-                    nodeProps.append(["prop": propName, "values": [String: [Int]]()])
-                }
-                var values = nodeProps[rec!]["values"] as! [String: [Int]]
-                if values[propValue] == nil { values[propValue] = [] }
-                values[propValue]!.append(type.id)
-                nodeProps[rec!]["values"] = values
-            }
-        }
-        let formattedProps = nodeProps.map { entry -> [String: Any] in
-            let propName = entry["prop"] as! String
-            let values = entry["values"] as! [String: [Int]]
-            var terms: [Any] = []
-            for (val, ids) in values {
-                if ids.count == 1 {
-                    terms.append(ids[0]); terms.append(val)
-                } else {
-                    terms.append(-ids.count)
-                    for id in ids { terms.append(id) }
-                    terms.append(val)
-                }
-            }
-            return ["prop": propName, "terms": terms]
-        }
-        return (formattedProps.isEmpty ? nil : formattedProps, skippedTypes)
-    }
-    
-    func makeTerminal(_ name: String, nodeName: String?, props: Props = [:]) -> Term {
-        return terms.makeTerminal(terms.uniqueName(name), nodeName: nodeName, props: props)
-    }
-    
-    func computeForceReductions(_ states: [State], _ skipInfo: [SkipInfo]) -> [Int] {
-        var reductions: [Int] = []
-        var candidates: [[Pos]] = []
-        var gotoEdges: [Int: [(parents: [Int], target: Int)]] = [:]
-        for state in states {
-            reductions.append(0)
-            for edge in state.goto {
-                var array = gotoEdges[edge.term.id] ?? []
-                if let found = array.firstIndex(where: { $0.target == edge.target.id }) {
-                    array[found].parents.append(state.id)
-                } else {
-                    array.append((parents: [state.id], target: edge.target.id))
-                }
-                gotoEdges[edge.term.id] = array
-            }
-            candidates.append(state.set.filter { $0.pos > 0 && !$0.rule.name.top }.sorted { a, b in
-                if b.pos != a.pos { return b.pos < a.pos }
-                return a.rule.parts.count < b.rule.parts.count
-            })
-        }
-        var length1Reductions: [Int: Int] = [:]
-        func createsCycle(_ term: Int, _ startState: Int, _ parents: [Int]? = nil) -> Bool {
-            guard let edges = gotoEdges[term] else { return false }
-            for val in edges {
-                let parentIntersection = parents != nil ? parents!.filter { val.parents.contains($0) } : val.parents
-                if parentIntersection.isEmpty { continue }
-                if val.target == startState { return true }
-                if let found = length1Reductions[val.target], createsCycle(found, startState, parentIntersection) { return true }
-            }
-            return false
-        }
-        for state in states {
-            if let dr = state.defaultReduce, !dr.parts.isEmpty {
-                reductions[state.id] = reduceAction(dr, skipInfo)
-                if dr.parts.count == 1 { length1Reductions[state.id] = dr.name.id }
-            }
-        }
-        for setSize in 1... {
-            var done = true
-            for state in states {
-                if state.defaultReduce != nil { continue }
-                let set = candidates[state.id]
-                if set.count != setSize {
-                    if set.count > setSize { done = false }
-                    continue
-                }
-                for pos in set {
-                    if pos.pos != 1 || !createsCycle(pos.rule.name.id, state.id) {
-                        reductions[state.id] = reduceAction(pos.rule, skipInfo, depth: pos.pos)
-                        if pos.pos == 1 { length1Reductions[state.id] = pos.rule.name.id }
-                        break
-                    }
-                }
-            }
-            if done { break }
-        }
-        return reductions
-    }
-    
-    func substituteArgs(_ expr: Expression, args: [Expression], params: [Identifier]) -> Expression {
-        if args.isEmpty { return expr }
-        return expr.walk { e in
-            if let nameExpr = e as? NameExpression, let found = params.firstIndex(where: { $0.name == nameExpr.id.name }) {
-                let arg = args[found]
-                if !nameExpr.args.isEmpty {
-                    if arg is NameExpression && (arg as! NameExpression).args.isEmpty {
-                        return NameExpression(start: nameExpr.start, id: (arg as! NameExpression).id, args: nameExpr.args)
-                    }
-                    self.raise("Passing arguments to a parameter that already has arguments", pos: nameExpr.start)
-                }
-                return arg
-            }
-            if let inlineExpr = e as? InlineRuleExpression {
-                let r = inlineExpr.rule
-                if let newProps = substituteArgsInProps(r.props, args: args, params: params) {
-                    return InlineRuleExpression(start: inlineExpr.start, rule: RuleDeclaration(start: r.start, id: r.id, props: newProps, params: r.params, expr: r.expr))
-                }
-                return inlineExpr
-            }
-            if let specExpr = e as? SpecializeExpression {
-                if let newProps = substituteArgsInProps(specExpr.props, args: args, params: params) {
-                    return SpecializeExpression(start: specExpr.start, type: specExpr.type, props: newProps, token: specExpr.token, content: specExpr.content)
-                }
-                return specExpr
-            }
-            return e
-        }
-    }
-    
-    func substituteArgsInProps(_ props: [Prop], args: [Expression], params: [Identifier]) -> [Prop]? {
-        var result: [Prop]? = nil
-        for (i, prop) in props.enumerated() {
-            var newValue = prop.value
-            var valueChanged = false
-            for (j, part) in prop.value.enumerated() {
-                guard let pname = part.name, let found = params.firstIndex(where: { $0.name == pname }) else { continue }
-                if !valueChanged { newValue = prop.value; valueChanged = true }
-                let expr = args[found]
-                if let nameExpr = expr as? NameExpression, nameExpr.args.isEmpty {
-                    newValue[j] = PropPart(start: part.start, value: nameExpr.id.name, name: nil)
-                } else if let litExpr = expr as? LiteralExpression {
-                    newValue[j] = PropPart(start: part.start, value: litExpr.value, name: nil)
-                } else {
-                    raise("Trying to interpolate expression '\(expr)' into a prop", pos: part.start)
-                }
-            }
-            if valueChanged {
-                if result == nil { result = props }
-                result![i] = Prop(start: prop.start, at: prop.at, name: prop.name, value: newValue)
-            }
-        }
-        return result
-    }
-    
-    func conflictsFor(_ markers: [ConflictMarker]) -> (here: Conflicts, atEnd: Conflicts) {
-        var here = Conflicts.none
-        var atEnd = Conflicts.none
-        for marker in markers {
-            if marker.type == "ambig" {
-                here = here.join(Conflicts(precedence: 0, ambigGroups: [marker.id.name]))
-            } else {
-                guard let precs = ast.precedences else {
-                    raise("Reference to unknown precedence: '\(marker.id.name)'", pos: marker.id.start)
-                }
-                guard let index = precs.items.firstIndex(where: { $0.id.name == marker.id.name }) else {
-                    raise("Reference to unknown precedence: '\(marker.id.name)'", pos: marker.id.start)
-                }
-                let prec = precs.items[index]
-                let value = precs.items.count - index
-                if prec.type == "cut" {
-                    here = here.join(Conflicts(precedence: 0, ambigGroups: [], cut: value))
-                } else {
-                    here = here.join(Conflicts(precedence: value << 2))
-                    atEnd = atEnd.join(Conflicts(precedence: (value << 2) + (prec.type == "left" ? 1 : prec.type == "right" ? -1 : 0)))
-                }
-            }
-        }
-        return (here, atEnd)
-    }
-    
-    func raise(_ message: String, pos: Int = 1) -> Never {
-        input.raise(message, pos: pos)
-    }
-    
-    func warn(_ message: String, pos: Int = -1) {
-        let msg = input.message(message, pos: pos)
-        if let w = options.warn { w(msg) } else { print("warning: \(msg)") }
-    }
-    
-    func defineRule(_ name: Term, choices: [Parts]) {
-        let skip = currentSkip.last!
-        for choice in choices {
-            rules.append(Rule(name: name, parts: choice.terms, conflicts: choice.ensureConflicts(), skip: skip))
-        }
-    }
-    
-    func resolve(_ expr: NameExpression) -> [Parts] {
-        for b in built { if b.matches(expr) { return [p(b.term)] } }
-        if let found = tokens.getToken(expr) { return [p(found)] }
-        for grp in localTokens { if let found = grp.getToken(expr) { return [p(found)] } }
-        for ext in externalTokens { if let found = ext.getToken(expr) { return [p(found)] } }
-        for ext in externalSpecializers { if let found = ext.getToken(expr) { return [p(found)] } }
-        guard let known = astRules.first(where: { $0.rule.id.name == expr.id.name }) else {
-            raise("Reference to undefined rule '\(expr.id.name)'", pos: expr.start)
-        }
-        if known.rule.params.count != expr.args.count { raise("Wrong number or arguments for '\(expr.id.name)'", pos: expr.start) }
-        used(known.rule.id.name)
-        return [p(buildRule(known.rule, args: expr.args, skip: known.skip))]
-    }
-    
-    func normalizeRepeat(_ expr: RepeatExpression) -> Parts {
-        for b in built { if b.matchesRepeat(expr) { return p(b.term) } }
-        let nameStr = expr.expr.prec < expr.prec ? "\(expr.expr.toString())+": "\(expr.expr.toString())+"
-        let term = terms.makeRepeat(terms.uniqueName(nameStr))
-        built.append(BuiltRule(id: "+", args: [expr.expr], term: term))
-        defineRule(term, choices: normalizeExpr(expr.expr) + [p(term, term)])
-        return p(term)
-    }
-    
-    func normalizeSequence(_ expr: SequenceExpression) -> [Parts] {
-        let result: [[Parts]] = expr.exprs.map { normalizeExpr($0) }
-        func complete(_ start: Parts, _ from: Int, _ endConflicts: Conflicts) -> [Parts] {
-            let (here, atEnd) = conflictsFor(expr.markers[from])
-            if from == result.count { return [start.withConflicts(start.terms.count, here.join(endConflicts))] }
-            var choices: [Parts] = []
-            for choice in result[from] {
-                for full in complete(start.concat(choice).withConflicts(start.terms.count, here), from + 1, endConflicts.join(atEnd)) {
-                    choices.append(full)
-                }
-            }
-            return choices
-        }
-        return complete(Parts.none, 0, Conflicts.none)
-    }
-    
-    func normalizeExpr(_ expr: Expression) -> [Parts] {
-        if let repeatExpr = expr as? RepeatExpression {
-            if repeatExpr.kind == "?" { return [Parts.none] + normalizeExpr(repeatExpr.expr) }
-            let repeated = normalizeRepeat(repeatExpr)
-            return repeatExpr.kind == "+" ? [repeated] : [Parts.none, repeated]
-        }
-        if let choiceExpr = expr as? ChoiceExpression {
-            return choiceExpr.exprs.reduce([]) { $0 + normalizeExpr($1) }
-        }
-        if let seqExpr = expr as? SequenceExpression {
-            return normalizeSequence(seqExpr)
-        }
-        if let litExpr = expr as? LiteralExpression {
-            return [p(tokens.getLiteral(litExpr)!)]
-        }
-        if let nameExpr = expr as? NameExpression {
-            return resolve(nameExpr)
-        }
-        if let specExpr = expr as? SpecializeExpression {
-            return [p(resolveSpecialization(specExpr))]
-        }
-        if let inlineExpr = expr as? InlineRuleExpression {
-            return [p(buildRule(inlineExpr.rule, args: [], skip: currentSkip.last!, inline: true))]
-        }
-        raise("This type of expression ('\(expr)') may not occur in non-token rules", pos: expr.start)
-    }
-    
-    func buildRule(_ rule: RuleDeclaration, args: [Expression], skip: Term, inline: Bool = false) -> Term {
-        let expr = substituteArgs(rule.expr, args: args, params: rule.params)
-        let info = nodeInfo(rule.props, allow: inline ? "pg" : "pgi", defaultName: rule.id.name, args: args, params: rule.params, expr: rule.expr)
-        if info.exported != nil && !rule.params.isEmpty { warn("Can't export parameterized rules", pos: rule.start) }
-        if info.exported != nil && inline { warn("Can't export inline rule", pos: rule.start) }
-        let suffix = args.isEmpty ? "" : "<\(args.map { String(describing: $0) }.joined(separator: ","))>"
-        let name = newName(rule.id.name + suffix, nodeName: info.name ?? true, props: info.props)
-        if info.inline { name.inline = true }
-        if info.dynamicPrec != 0 { registerDynamicPrec(name, prec: info.dynamicPrec) }
-        if (name.nodeType || info.exported != nil) && rule.params.isEmpty {
-            if info.name == nil { name.preserve = true }
-            if !inline { namedTerms[info.exported ?? rule.id.name] = name }
-        }
-        if !inline { built.append(BuiltRule(id: rule.id.name, args: args, term: name)) }
-        currentSkip.append(skip)
-        let parts = normalizeExpr(expr)
-        defineRule(name, choices: parts)
-        currentSkip.removeLast()
-        if let g = info.group { definedGroups.append((name: name, group: g, rule: rule)) }
-        return name
-    }
-    
-    func nodeInfo(_ props: [Prop], allow: String, defaultName: String?, args: [Expression], params: [Identifier], expr: Expression? = nil, defaultProps: Props? = nil) -> (name: String?, props: Props, dialect: Int?, dynamicPrec: Int, inline: Bool, group: String?, exported: String?) {
-        var result: Props = [:]
-        let name: String? = {
-            guard let dn = defaultName else { return nil }
-            if allow.contains("a") || !ignored(dn), !dn.contains(" ") { return dn }
-            return nil
-        }()
-        var dialect: Int? = nil
-        var dynamicPrec = 0
-        var inline = false
-        var group: String? = nil
-        var exported: String? = nil
-        var resultName = name
-        for prop in props {
-            if !prop.at {
-                if knownProps[prop.name] == nil {
-                    let builtin = ["name", "dialect", "dynamicPrecedence", "export", "isGroup"].contains(prop.name) ? " (did you mean '@\(prop.name)'?)" : ""
-                    raise("Unknown prop name '\(prop.name)'\(builtin)", pos: prop.start)
-                }
-                result[prop.name] = finishProp(prop, args: args, params: params)
-            } else if prop.name == "name" {
-                resultName = finishProp(prop, args: args, params: params)
-                if resultName!.contains(" ") { raise("Node names cannot have spaces ('\(resultName!)')", pos: prop.start) }
-            } else if prop.name == "dialect" {
-                if !allow.contains("d") { raise("Can't specify a dialect on non-token rules", pos: props[0].start) }
-                if prop.value.count != 1 || prop.value[0].value == nil { raise("The '@dialect' rule prop must hold a plain string value") }
-                guard let dID = dialects.firstIndex(of: prop.value[0].value!) else { raise("Unknown dialect '\(prop.value[0].value!)'", pos: prop.value[0].start) }
-                dialect = dID
-            } else if prop.name == "dynamicPrecedence" {
-                if !allow.contains("p") { raise("Dynamic precedence can only be specified on nonterminals") }
-                if prop.value.count != 1 || !isValidDynamicPrecedence(prop.value[0].value ?? "") { raise("The '@dynamicPrecedence' rule prop must hold an integer between -10 and 10") }
-                dynamicPrec = Int(prop.value[0].value!)!
-            } else if prop.name == "inline" {
-                if !prop.value.isEmpty { raise("'@inline' doesn't take a value", pos: prop.value[0].start) }
-                if !allow.contains("i") { raise("Inline can only be specified on nonterminals") }
-                inline = true
-            } else if prop.name == "isGroup" {
-                if !allow.contains("g") { raise("'@isGroup' can only be specified on nonterminals") }
-                group = prop.value.isEmpty ? defaultName : finishProp(prop, args: args, params: params)
-            } else if prop.name == "export" {
-                exported = prop.value.isEmpty ? defaultName : finishProp(prop, args: args, params: params)
-            } else {
-                raise("Unknown built-in prop name '@\(prop.name)'", pos: prop.start)
-            }
-        }
-        if let e = expr, ast.autoDelim, resultName != nil || hasProps(result) {
-            let delim = findDelimiters(e)
-            if let d = delim {
-                addToProp(d.0, "closedBy", d.1.nodeName!)
-                addToProp(d.1, "openedBy", d.0.nodeName!)
-            }
-        }
-        if let dp = defaultProps, hasProps(dp) {
-            for (pk, pv) in dp { if result[pk] == nil { result[pk] = pv } }
-        }
-        if hasProps(result) && resultName == nil { raise("Node has properties but no name", pos: props.first?.start ?? expr?.start ?? 0) }
-        if inline && (hasProps(result) || dialect != nil || dynamicPrec != 0) { raise("Inline nodes can't have props, dynamic precedence, or a dialect", pos: props.first?.start ?? 0) }
-        if inline { resultName = nil }
-        return (name: resultName, props: result, dialect: dialect, dynamicPrec: dynamicPrec, inline: inline, group: group, exported: exported)
-    }
-    
-    func finishProp(_ prop: Prop, args: [Expression], params: [Identifier]) -> String {
-        return prop.value.map { part -> String in
-            if let v = part.value { return v }
-            guard let pname = part.name, let pos = params.firstIndex(where: { $0.name == pname }) else {
-                raise("Property refers to '\(part.name ?? "")', but no parameter by that name is in scope", pos: part.start)
-            }
-            let expr = args[pos]
-            if let nameExpr = expr as? NameExpression, nameExpr.args.isEmpty { return nameExpr.id.name }
-            if let litExpr = expr as? LiteralExpression { return litExpr.value }
-            raise("Expression '\(expr)' can not be used as part of a property value", pos: part.start)
-        }.joined()
-    }
-    
-    func resolveSpecialization(_ expr: SpecializeExpression) -> Term {
-        let type = expr.type
-        let info = nodeInfo(expr.props, allow: "d", defaultName: nil, args: [], params: [])
-        let terminal = normalizeExpr(expr.token)
-        if terminal.count != 1 || terminal[0].terms.count != 1 || !terminal[0].terms[0].terminal {
-            raise("The first argument to '\(type)' must resolve to a token", pos: expr.token.start)
-        }
-        let values: [String]
-        if let lit = isLiteralToken(expr.content) { values = [lit] }
-        else if let choice = expr.content as? ChoiceExpression {
-            values = choice.exprs.compactMap { isLiteralToken($0) }
-            if values.count != choice.exprs.count { raise("The second argument to '\(type)' must be a literal or choice of literals", pos: expr.content.start) }
-        } else { raise("The second argument to '\(type)' must be a literal or choice of literals", pos: expr.content.start) }
-        let term = terminal[0].terms[0]
-        var table = specialized[term.name] ?? []
-        var token: Term? = nil
-        for value in values {
-            if let known = table.first(where: { $0["value"] as! String == value }) {
-                if known["type"] as! String != type { raise("Conflicting specialization types for \(value) of \(term.name)", pos: expr.start) }
-                if (known["dialect"] as? Int) != info.dialect { raise("Conflicting dialects for specialization \(value) of \(term.name)", pos: expr.start) }
-                if (known["name"] as? String) != info.name { raise("Conflicting names for specialization \(value) of \(term.name)", pos: expr.start) }
-                if let t = token, (known["term"] as! Term) !== t { raise("Conflicting specialization tokens for \(value) of \(term.name)", pos: expr.start) }
-                token = known["term"] as? Term
-            } else {
-                if token == nil {
-                    token = makeTerminal("\(term.name)/\"\(value)\"", nodeName: info.name, props: info.props)
-                    if let d = info.dialect {
-                        if tokens.byDialect[d] == nil { tokens.byDialect[d] = [] }
-                        tokens.byDialect[d]!.append(token!)
-                    }
-                }
-                let typeCode = type == "specialize" ? "specialize" : "extend"
-                table.append(["value": value, "term": token!, "type": typeCode, "dialect": info.dialect as Any, "name": info.name as Any])
-                tokenOrigins[token!.name] = TokenOrigin(spec: term, external: nil, group: nil)
-                if info.name != nil || info.exported != nil {
-                    if info.name == nil { token!.preserve = true }
-                    namedTerms[info.exported ?? info.name!] = token!
-                }
-            }
-        }
-        specialized[term.name] = table
-        return token!
-    }
-    
-    func findDelimiters(_ expr: Expression) -> (Term, Term)? {
-        guard let seq = expr as? SequenceExpression, seq.exprs.count >= 2 else { return nil }
-        func findToken(_ e: Expression) -> (term: Term, str: String)? {
-            if let lit = e as? LiteralExpression { return (term: tokens.getLiteral(lit)!, str: lit.value) }
-            if let name = e as? NameExpression, name.args.isEmpty {
-                if let rule = ast.rules.first(where: { $0.id.name == name.id.name }) { return findToken(rule.expr) }
-                if let tokenRule = tokens.rules.first(where: { $0.id.name == name.id.name }), let lit = tokenRule.expr as? LiteralExpression {
-                    return (term: tokens.getToken(name)!, str: lit.value)
-                }
-            }
-            return nil
-        }
-        guard let lastToken = findToken(seq.exprs.last!), lastToken.term.nodeName != nil else { return nil }
-        let brackets = ["()", "[]", "{}", "<>"]
-        guard let bracket = brackets.first(where: { lastToken.str.contains($0[..<$0.index($0.startIndex, offsetBy: 1)]) && !lastToken.str.contains($0[$0.index($0.startIndex, offsetBy: 1)...]) }) else { return nil }
-        guard let firstToken = findToken(seq.exprs.first!), firstToken.term.nodeName != nil,
-              firstToken.str.contains(bracket[..<bracket.index(bracket.startIndex, offsetBy: 1)]),
-              !firstToken.str.contains(bracket[bracket.index(bracket.startIndex, offsetBy: 1)...]) else { return nil }
-        return (firstToken.term, lastToken.term)
-    }
-    
-    func registerDynamicPrec(_ term: Term, prec: Int) {
-        dynamicRulePrecedences.append((rule: term, prec: prec))
-        term.preserve = true
-    }
-    
-    func defineGroup(name: Term, group: String, rule: RuleDeclaration) {
-        let declStart = rule.start
-        var recur: [Term] = []
-        func getNamed(_ rule: Term) -> [Term] {
-            if rule.nodeName != nil { return [rule] }
-            if recur.contains(where: { $0 === rule }) { raise("Rule '\(rule.id)' cannot define a group because it contains a non-named recursive rule ('\(rule.name)')", pos: declStart) }
-            var result: [Term] = []
-            recur.append(rule)
-            for r in self.rules where r.name === rule {
-                let names = r.parts.map(getNamed).filter { !$0.isEmpty }
-                if names.count > 1 { raise("Rule '\(rule.id)' cannot define a group because some choices produce multiple named nodes", pos: declStart) }
-                if names.count == 1 { for n in names[0] { result.append(n) } }
-            }
-            recur.removeLast()
-            return result
-        }
-        for n in getNamed(name) {
-            let cur = n.props["group"]?.split(separator: " ").map(String.init) ?? []
-            n.props["group"] = (Set(cur).union([group])).sorted().joined(separator: " ")
-        }
-    }
-    
-    func checkGroups() {
-        var groups: [String: [Term]] = [:]
-        var nodeNames: Set<String> = []
-        for term in terms.terms {
-            if let nn = term.nodeName {
-                nodeNames.insert(nn)
-                if let grp = term.props["group"] {
-                    for g in grp.split(separator: " ") {
-                        let s = String(g)
-                        if groups[s] == nil { groups[s] = [] }
-                        groups[s]!.append(term)
-                    }
-                }
-            }
-        }
-        let names = Array(groups.keys)
-        for i in 0..<names.count {
-            let name = names[i], terms = groups[name]!
-            if nodeNames.contains(name) { warn("Group name '\(name)' conflicts with a node of the same name") }
-            for j in (i+1)..<names.count {
-                let other = groups[names[j]]!
-                if terms.contains(where: { other.contains($0) }) && (terms.count > other.count ? other.contains(where: { !terms.contains($0) }) : terms.contains(where: { !other.contains($0) })) {
-                    warn("Groups '\(name)' and '\(names[j])' overlap without one being a superset of the other")
-                }
-            }
-        }
-    }
-}
-
-func isLiteralToken(_ expr: Expression) -> String? {
-    if let lit = expr as? LiteralExpression { return lit.value }
-    if let seq = expr as? SequenceExpression {
-        var result = ""
-        for sub in seq.exprs {
-            guard let s = isLiteralToken(sub) else { return nil }
-            result += s
-        }
-        return result
-    }
-    return nil
-}
-
-public func buildParser(text: String, options: BuildOptions = BuildOptions()) -> LRParser {
-    let builder = Builder(text, options: options)
-    let parser = builder.getParser()
-    return parser
 }

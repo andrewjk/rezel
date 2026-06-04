@@ -1,20 +1,8 @@
-//
-//  Parse.swift
-//  Rezel
-//
-//  Created on 2025-06-11.
-//
-
 import Foundation
 
-// Verbose logging flag — matches the TS equivalent: /\bparse\b/.test(process.env.LOG!)
-fileprivate let parseLog = verbose.contains("parse")
+public let lrDefaultBufferLength = 1024
 
-// Map from stack identity to displayed ID string
-nonisolated(unsafe) fileprivate var stackIDs: [ObjectIdentifier: String] = [:]
-
-// Recovery configuration constants
-fileprivate struct Rec {
+struct LrRec {
     static let distance = 5
     static let maxRemainingPerStep = 3
     static let minBufferLengthPrune = 500
@@ -25,249 +13,203 @@ fileprivate struct Rec {
     static let maxStackCount = 12
 }
 
-// Helper function to find a position in a tree to cut at
-fileprivate func cutAt(tree: Tree, pos: Int, side: SideInt) -> Int {
-    let cursor = tree.cursor(mode: IterMode.includeAnonymous)
-    _ = cursor.moveTo(pos: pos)
-    
-    while true {
-        if !(side < 0 ? cursor.childBefore(pos: pos) : cursor.childAfter(pos: pos)) {
-            while true {
-                if ((side < 0 ? cursor.to < pos : cursor.from > pos) && !cursor.type.isError) {
-                    return side < 0
-                        ? max(0, min(cursor.to - 1, pos - Lookahead.margin))
-                        : min(tree.length, max(cursor.from + 1, pos + Lookahead.margin))
-                }
-                if side < 0 ? cursor.prevSibling() : cursor.nextSibling() {
-                    break
-                }
-                if !cursor.parent() {
-                    return side < 0 ? 0 : tree.length
-                }
-            }
-        }
-    }
+func lrPair(_ data: [UInt16], _ off: Int) -> Int {
+    return Int(data[off]) | (Int(data[off + 1]) << 16)
 }
 
-/// Cursor for navigating through tree fragments
 class LrFragmentCursor {
-    var i = 0
-    var fragment: TreeFragment?
-    var safeFrom = -1
-    var safeTo = -1
+    var i: Int = 0
+    var fragment: TreeFragment? = nil
+    var safeFrom: Int = -1
+    var safeTo: Int = -1
     var trees: [Tree] = []
-    var startPositions: [Int] = []
-    var index: [Int] = []
+    var startArr: [Int] = []
+    var indexArr: [Int] = []
     var nextStart: Int = 0
-    
+
     let fragments: [TreeFragment]
     let nodeSet: NodeSet
-    
+
     init(fragments: [TreeFragment], nodeSet: NodeSet) {
         self.fragments = fragments
         self.nodeSet = nodeSet
         nextFragment()
     }
-    
+
     func nextFragment() {
         if i == fragments.count {
             fragment = nil
             nextStart = 1_000_000_000
             return
         }
-        
         let fr = fragments[i]
         i += 1
         fragment = fr
-        
-        safeFrom = fr.openStart ? cutAt(tree: fr.tree, pos: fr.from + fr.offset, side: 1) - fr.offset : fr.from
-        safeTo = fr.openEnd ? cutAt(tree: fr.tree, pos: fr.to + fr.offset, side: -1) - fr.offset : fr.to
-        
-        while !trees.isEmpty {
-            trees.removeLast()
-            startPositions.removeLast()
-            index.removeLast()
-        }
-        
+        safeFrom = fr.openStart ? lrCutAt(fr.tree, pos: fr.from + fr.offset, side: 1) - fr.offset : fr.from
+        safeTo = fr.openEnd ? lrCutAt(fr.tree, pos: fr.to + fr.offset, side: -1) - fr.offset : fr.to
+        trees.removeAll()
+        startArr.removeAll()
+        indexArr.removeAll()
         trees.append(fr.tree)
-        startPositions.append(-fr.offset)
-        index.append(0)
+        startArr.append(-fr.offset)
+        indexArr.append(0)
         nextStart = safeFrom
     }
-    
-    /// Get a node at the given position
-    func nodeAt(pos: Int) -> Tree? {
-        if pos < nextStart {
-            return nil
-        }
-        
-        while let _ = fragment, safeTo <= pos {
-            nextFragment()
-        }
-        
-        guard let fragment = fragment else {
-            return nil
-        }
-        
+
+    func nodeAt(_ pos: Int) -> Tree? {
+        if pos < nextStart { return nil }
+        while fragment != nil && safeTo <= pos { nextFragment() }
+        if fragment == nil { return nil }
+
         while true {
             let last = trees.count - 1
             if last < 0 {
                 nextFragment()
                 return nil
             }
-            
             let top = trees[last]
-            let idx = index[last]
-            
+            let idx = indexArr[last]
             if idx == top.children.count {
                 trees.removeLast()
-                startPositions.removeLast()
-                index.removeLast()
+                startArr.removeLast()
+                indexArr.removeLast()
                 continue
             }
-            
             let next = top.children[idx]
-            let startPos = startPositions[last] + top.positions[idx]
-            
-            if startPos > pos {
-                nextStart = startPos
+            let s = startArr[last] + top.positions[idx]
+            if s > pos {
+                nextStart = s
                 return nil
             }
-            
-            if case .tree(let nextTree) = next {
-                if startPos == pos {
-                    if startPos < safeFrom {
-                        return nil
-                    }
-                    let end = startPos + nextTree.length
+            if let nextTree = next as? Tree {
+                if s == pos {
+                    if s < safeFrom { return nil }
+                    let end = s + nextTree.length
                     if end <= safeTo {
-                        let lookAhead = nextTree.prop(prop: nodePropLookAhead)
-                        if lookAhead == nil || end + lookAhead! < fragment.to {
-                            return nextTree
-                        }
+                        let lookAhead = nextTree.prop(nodePropLookAhead)
+                        if lookAhead == nil || end + lookAhead! < fragment!.to { return nextTree }
                     }
                 }
-                index[last] += 1
-                if startPos + next.length >= max(safeFrom, pos) {
+                indexArr[last] += 1
+                if s + nextTree.length >= max(safeFrom, pos) {
                     trees.append(nextTree)
-                    startPositions.append(startPos)
-                    index.append(0)
+                    startArr.append(s)
+                    indexArr.append(0)
                 }
             } else {
-                index[last] += 1
-                nextStart = startPos + next.length
+                indexArr[last] += 1
+                let bufferNode = next as! TreeBuffer
+                nextStart = s + bufferNode.length
             }
         }
     }
 }
 
-/// Cache for tokens during parsing
+func lrCutAt(_ tree: Tree, pos: Int, side: Int) -> Int {
+    let cursor = tree.cursor(mode: IterMode.includeAnonymous)
+    cursor.moveTo(pos: pos)
+    while true {
+        let moved = side < 0 ? cursor.childBefore(pos) : cursor.childAfter(pos)
+        if !moved {
+            while true {
+                if (side < 0 ? cursor.to < pos : cursor.from > pos) && !cursor.type.isError {
+                    if side < 0 {
+                        return max(0, min(cursor.to - 1, pos - lookaheadMargin))
+                    } else {
+                        return min(tree.length, max(cursor.from + 1, pos + lookaheadMargin))
+                    }
+                }
+                let siblingMoved = side < 0 ? cursor.prevSibling() : cursor.nextSibling()
+                if siblingMoved { break }
+                if !cursor.parent() { return side < 0 ? 0 : tree.length }
+            }
+        }
+    }
+}
+
 class TokenCache {
     var tokens: [CachedToken] = []
-    var mainToken: CachedToken?
+    var mainToken: CachedToken? = nil
     var actions: [Int] = []
-    
     let stream: InputStream
-    
+
     init(parser: LRParser, stream: InputStream) {
         self.stream = stream
         self.tokens = parser.tokenizers.map { _ in CachedToken() }
     }
-    
-    func getActions(stack: Stack) -> [Int] {
+
+    func getActions(_ stack: Stack) -> [Int] {
         var actionIndex = 0
         var main: CachedToken? = nil
         let parser = stack.p.parser
         let tokenizers = parser.tokenizers
-        
-        let mask = parser.stateSlot(state: stack.state, slot: ParseState.tokenizerMask)
+
+        let mask = parser.stateSlot(stack.state, slot: ParseState.TokenizerMask)
         let context = stack.curContext?.hash ?? 0
         var lookAhead = 0
-        
+
         for i in 0..<tokenizers.count {
-            if ((1 << i) & mask) == 0 {
-                continue
-            }
-            
+            if ((1 << i) & mask) == 0 { continue }
             let tokenizer = tokenizers[i]
             let token = tokens[i]
-            
-            if let _ = main, !tokenizer.fallback {
-                continue
-            }
-            
+            if main != nil && !tokenizer.fallback { continue }
             if tokenizer.contextual ||
                 token.start != stack.pos ||
                 token.mask != mask ||
                 token.context != context {
-                updateCachedToken(token: token, tokenizer: tokenizer, stack: stack)
+                updateCachedToken(token, tokenizer: tokenizer, stack: stack)
                 token.mask = mask
                 token.context = context
             }
-            
-            if token.lookAhead > token.end + Lookahead.margin {
+            if token.lookAhead > token.end + lookaheadMargin {
                 lookAhead = max(token.lookAhead, lookAhead)
             }
-            
-            if token.value != LrTerm.err {
+
+            if token.value != LrTerm.Err {
                 let startIndex = actionIndex
                 if token.extended > -1 {
-                    actionIndex = addActions(stack: stack, token: token.extended, end: token.end, index: actionIndex)
+                    actionIndex = addActions(stack, token: token.extended, end: token.end, index: actionIndex)
                 }
-                actionIndex = addActions(stack: stack, token: token.value, end: token.end, index: actionIndex)
+                actionIndex = addActions(stack, token: token.value, end: token.end, index: actionIndex)
                 if !tokenizer.extend {
                     main = token
-                    if actionIndex > startIndex {
-                        break
-                    }
+                    if actionIndex > startIndex { break }
                 }
             }
         }
-        
-        while actions.count > actionIndex {
-            actions.removeLast()
-        }
-        
-        if lookAhead > 0 {
-            _ = stack.setLookAhead(lookAhead)
-        }
-        
+
+        while actions.count > actionIndex { actions.removeLast() }
+        if lookAhead > 0 { stack.setLookAhead(lookAhead) }
         if main == nil && stack.pos == stream.end {
             main = CachedToken()
             main!.value = stack.p.parser.eofTerm
             main!.start = stack.pos
             main!.end = stack.pos
-            actionIndex = addActions(stack: stack, token: main!.value, end: main!.end, index: actionIndex)
+            actionIndex = addActions(stack, token: main!.value, end: main!.end, index: actionIndex)
         }
-        
         self.mainToken = main
         return actions
     }
-    
-    func getMainToken(stack: Stack) -> CachedToken {
-        if let main = mainToken {
-            return main
-        }
-        
+
+    func getMainToken(_ stack: Stack) -> CachedToken {
+        if let mt = mainToken { return mt }
         let main = CachedToken()
         main.start = stack.pos
         main.end = min(stack.pos + 1, stack.p.stream.end)
-        main.value = stack.pos == stack.p.stream.end ? stack.p.parser.eofTerm : LrTerm.err
+        main.value = stack.pos == stack.p.stream.end ? stack.p.parser.eofTerm : LrTerm.Err
         return main
     }
-    
-    func updateCachedToken(token: CachedToken, tokenizer: any Tokenizer, stack: Stack) {
+
+    func updateCachedToken(_ token: CachedToken, tokenizer: TokenizerProtocol, stack: Stack) {
         let start = stream.clipPos(stack.pos)
-        tokenizer.token(stream.reset(start, token: token), stack)
-        
+        tokenizer.token(stream.reset(start, token: token), stack: stack)
         if token.value > -1 {
             let parser = stack.p.parser
-            
             for i in 0..<parser.specialized.count {
                 if parser.specialized[i] == token.value {
-                    let result = parser.specializers[i](stream.read(token.start, token.end), stack)
+                    let result = parser.specializers[i](stream.read(from: token.start, to: token.end), stack)
                     if result >= 0 && stack.p.parser.dialect.allows(term: result >> 1) {
-                        if (result & 1) == Specialize.specialize {
+                        if (result & 1) == Specialize.Specialize {
                             token.value = result >> 1
                         } else {
                             token.extended = result >> 1
@@ -277,289 +219,121 @@ class TokenCache {
                 }
             }
         } else {
-            token.value = LrTerm.err
+            token.value = LrTerm.Err
             token.end = stream.clipPos(start + 1)
         }
     }
-    
-    func putAction(action: Int, token: Int, end: Int, index: Int) -> Int {
-        // Don't add duplicate actions
-        for i in stride(from: 0, to: index, by: 3) {
-            if actions[i] == action {
-                return index
-            }
+
+    func putAction(_ action: Int, token: Int, end: Int, index: Int) -> Int {
+        var i = 0
+        while i < index {
+            if actions[i] == action { return index }
+            i += 3
         }
-        
-        var newIndex = index
-        if newIndex < actions.count {
-            actions[newIndex] = action
-        } else {
-            actions.append(action)
-        }
-        newIndex += 1
-        if newIndex < actions.count {
-            actions[newIndex] = token
-        } else {
-            actions.append(token)
-        }
-        newIndex += 1
-        if newIndex < actions.count {
-            actions[newIndex] = end
-        } else {
-            actions.append(end)
-        }
-        newIndex += 1
-        return newIndex
+        var idx = index
+        if actions.count <= idx { actions.append(action) } else { actions[idx] = action }
+        idx += 1
+        if actions.count <= idx { actions.append(token) } else { actions[idx] = token }
+        idx += 1
+        if actions.count <= idx { actions.append(end) } else { actions[idx] = end }
+        idx += 1
+        return idx
     }
-    
-    func addActions(stack: Stack, token: Int, end: Int, index: Int) -> Int {
+
+    func addActions(_ stack: Stack, token: Int, end: Int, index: Int) -> Int {
         let state = stack.state
         let parser = stack.p.parser
         let data = parser.data
-        var idx = index
-        
+        var index = index
         for set in 0..<2 {
-            var i = parser.stateSlot(state: state, slot: set == 1 ? ParseState.skip : ParseState.actions)
-            
+            var i = parser.stateSlot(state, slot: set == 0 ? ParseState.Actions : ParseState.Skip)
             while true {
-                if data[i] == Seq.end {
-                    if data[i + 1] == Seq.next {
-                        i = pair(data: data, off: i + 2)
+                if Int(data[i]) == Seq.End {
+                    if Int(data[i + 1]) == Seq.Next {
+                        i = lrPair(data, i + 2)
                     } else {
-                        if idx == 0 && data[i + 1] == Seq.other {
-                            idx = putAction(action: pair(data: data, off: i + 2), token: token, end: end, index: idx)
+                        if index == 0 && Int(data[i + 1]) == Seq.Other {
+                            index = putAction(lrPair(data, i + 2), token: token, end: end, index: index)
                         }
                         break
                     }
                 }
-                
-                if data[i] == token {
-                    idx = putAction(action: pair(data: data, off: i + 1), token: token, end: end, index: idx)
+                if Int(data[i]) == token {
+                    index = putAction(lrPair(data, i + 1), token: token, end: end, index: index)
                 }
-                
                 i += 3
             }
         }
-        
-        return idx
+        return index
     }
 }
 
-/// Helper function to combine two 16-bit values into a 32-bit value
-fileprivate func pair(data: [UInt16], off: Int) -> Int {
-    return Int(data[off]) | (Int(data[off + 1]) << 16)
-}
-
-/// Push a stack to the array, deduplicating by position and state
-fileprivate func pushStackDedup(stack: Stack, newStacks: inout [Stack]) {
-    for i in 0..<newStacks.count {
-        let other = newStacks[i]
-        if other.pos == stack.pos && other.sameState(stack) {
-            if newStacks[i].score < stack.score {
-                newStacks[i] = stack
-            }
-            return
-        }
-    }
-    newStacks.append(stack)
-}
-
-/// Find a finished parse stack
-fileprivate func findFinished(stacks: [Stack]) -> Stack? {
-    var best: Stack?
-    
-    for stack in stacks {
-        let stopped = stack.p.stoppedAt
-        if (stack.pos == stack.p.stream.end || (stopped != nil && stack.pos > stopped!)) &&
-           stack.p.parser.stateFlag(state: stack.state, flag: StateFlag.accepting) &&
-           (best == nil || best!.score < stack.score) {
-            best = stack
-        }
-    }
-    
-    return best
-}
-
-/// Get a specializer function from a spec
-fileprivate func getSpecializer(spec: SpecializerSpec) -> (String, Stack) -> Int {
-    if let external = spec.external {
-        let mask = spec.extend ? Specialize.extend : Specialize.specialize
-        return { value, stack in (external(value, stack) << 1) | mask }
-    }
-    return spec.get!
-}
-
-/// Dialect configuration for the parser
-public class Dialect {
-    let source: String?
-    let flags: [Bool]
-    let disabled: [UInt8]?
-    
-    init(source: String?, flags: [Bool], disabled: [UInt8]?) {
-        self.source = source
-        self.flags = flags
-        self.disabled = disabled
-    }
-    
-    func allows(term: Int) -> Bool {
-        return disabled == nil || disabled![term] == 0
-    }
-}
-
-/// Specializer specification
-struct SpecializerSpec {
-    let term: Int
-    let get: ((String, Stack) -> Int)?
-    let external: ((String, Stack) -> Int)?
-    let extend: Bool
-}
-
-/// Parse configuration options
-public struct ParserConfig {
-    var props: [NodePropSource]?
-    var top: String?
-    var dialect: String?
-    var tokenizers: [(from: ExternalTokenizer, to: ExternalTokenizer)]?
-    var specializers: [(from: (String, Stack) -> Int, to: (String, Stack) -> Int)]?
-    var contextTracker: ContextTracker<Any>?
-    var strict: Bool?
-    var wrap: ParseWrapper?
-    var bufferLength: Int?
-}
-
-/// Parser specification
-struct ParserSpec {
-    let version: Int
-    let states: StringOrArray
-    let stateData: StringOrArray  
-    let goto: StringOrArray
-    let nodeNames: String
-    let maxTerm: Int
-    let repeatNodeCount: Int
-    let nodeProps: [[Any]]?
-    let propSources: [NodePropSource]?
-    let skippedNodes: [Int]?
-    let tokenData: String
-    let tokenizers: [Any] // [Tokenizer | Int]
-    let topRules: [String: [Int]]
-    let context: ContextTracker<Any>?
-    let dialects: [String: Int]?
-    let dynamicPrecedences: [Int: Int]?
-    let specialized: [SpecializerSpec]?
-    let tokenPrec: Int
-    let termNames: [Int: String]?
-}
-
-/// Enum for string or array data
-enum StringOrArray {
-    case string(String)
-    case uint32Array([UInt32])
-    case uint16Array([UInt16])
-}
-
-/// Identity function for generic types
-fileprivate func id<T>(_ x: T) -> T {
-    return x
-}
-
-/// Context tracker for tracking stateful context during parsing
-public class ContextTracker<T> {
-    var start: T
-    var shift: (T, Int, Stack, InputStream) -> T
-    var reduce: (T, Int, Stack, InputStream) -> T
-    var reuse: (T, Tree, Stack, InputStream) -> T
-    var hash: (T) -> Int
-    var strict: Bool
-    
-    init(start: T,
-         shift: ((T, Int, Stack, InputStream) -> T)? = nil,
-         reduce: ((T, Int, Stack, InputStream) -> T)? = nil,
-         reuse: ((T, Tree, Stack, InputStream) -> T)? = nil,
-         hash: ((T) -> Int)? = nil,
-         strict: Bool = true) {
-        self.start = start
-        self.shift = shift ?? { val, _, _, _ in val }
-        self.reduce = reduce ?? { val, _, _, _ in val }
-        self.reuse = reuse ?? { val, _, _, _ in val }
-        self.hash = hash ?? { _ in 0 }
-        self.strict = strict
-    }
-}
-
-/// Main parse implementation
-class Parse: PartialParse {
-    var stacks: [Stack]
-    var recovering = 0
+public class LrParse: PartialParse {
+    public var stacks: [Stack]
+    public var recovering: Int = 0
     var fragments: LrFragmentCursor?
-    var nextStackID = 0x2654
-    var minStackPos = 0
-    
-    var reused: [Tree] = []
-    var stream: InputStream
+    var nextStackID: Int = 0x2654
+    public var minStackPos: Int = 0
+    public var reused: [Tree] = []
+    public var stream: InputStream
     var tokens: TokenCache
     var topTerm: Int
-    public var stoppedAt: Int?
-    
-    var lastBigReductionStart = -1
-    var lastBigReductionSize = 0
-    var bigReductionCount = 0
-    
-    let parser: LRParser
-    let input: any Input
-    let ranges: [Range]
-    
-    init(parser: LRParser, input: any Input, fragments: [TreeFragment], ranges: [Range]) {
+    public var stoppedAt: Int? = nil
+
+    public var lastBigReductionStart: Int = -1
+    public var lastBigReductionSize: Int = 0
+    public var bigReductionCount: Int = 0
+
+    public let parser: LRParser
+    public let input: InputProtocol
+    public let ranges: [Range]
+
+    public init(
+        parser: LRParser,
+        input: InputProtocol,
+        fragments: [TreeFragment],
+        ranges: [Range]
+    ) {
         self.parser = parser
         self.input = input
         self.ranges = ranges
         self.stream = InputStream(input: input, ranges: ranges)
-        self.tokens = TokenCache(parser: parser, stream: stream)
-        self.topTerm = parser.top[1]
-        self.stacks = []
-        self.fragments = nil
-        self.stoppedAt = nil
+        self.tokens = TokenCache(parser: parser, stream: self.stream)
+        self.topTerm = parser.top.1
         let from = ranges[0].from
-        self.stacks = [Stack.start(self, parser.top[0], from)]
-        
-        if fragments.count > 0 && (stream.end - from > parser.bufferLength * 4) {
-            self.fragments = LrFragmentCursor(fragments: fragments, nodeSet: parser.nodeSet)
-        } else {
-            self.fragments = nil
-        }
+        self.fragments = !fragments.isEmpty && self.stream.end - from > parser.bufferLength * 4
+            ? LrFragmentCursor(fragments: fragments, nodeSet: parser.nodeSet)
+            : nil
+        self.stacks = []
+        self.stacks = [Stack.start(self, state: parser.top.0, pos: from)]
     }
-    
-    public var parsedPos: Int {
-        return minStackPos
-    }
-    
+
+    public var parsedPos: Int { minStackPos }
+
     public func advance() -> Tree? {
-        let stacks = self.stacks
+        var stacks = self.stacks
         let pos = minStackPos
         var newStacks: [Stack] = []
-        var stopped: [Stack]?
-        var stoppedTokens: [Int]?
-        var dummySplit: [Stack] = []
-        
-        if stacks.isEmpty { return nil }
-        
-        // Handle big reductions to avoid deep recursion
-        if bigReductionCount > Rec.maxLeftAssociativeReductionCount && stacks.count == 1 {
-            let s = stacks[0]
+        self.stacks = newStacks
+        var stopped: [Stack]? = nil
+        var stoppedTokens: [Int]? = nil
+
+        if bigReductionCount > LrRec.maxLeftAssociativeReductionCount && stacks.count == 1 {
+            var s = stacks[0]
             while s.forceReduce() && s.stack.count > 0 && s.stack[s.stack.count - 2] >= lastBigReductionStart {
-                // Keep reducing
             }
             bigReductionCount = 0
             lastBigReductionSize = 0
         }
-        
-        // Process all stacks at current position
-        for i in 0..<stacks.count {
+
+        var i = 0
+        while i < stacks.count {
             var stack = stacks[i]
             while true {
                 tokens.mainToken = nil
                 if stack.pos > pos {
                     newStacks.append(stack)
-                } else if advanceStack(stack: &stack, stacks: &newStacks, split: &dummySplit) {
+                } else if advanceStack(&stack, stacks: &newStacks, split: &stacks) {
                     continue
                 } else {
                     if stopped == nil {
@@ -567,192 +341,142 @@ class Parse: PartialParse {
                         stoppedTokens = []
                     }
                     stopped!.append(stack)
-                    let tok = tokens.getMainToken(stack: stack)
+                    let tok = tokens.getMainToken(stack)
                     stoppedTokens!.append(tok.value)
                     stoppedTokens!.append(tok.end)
                 }
                 break
             }
+            i += 1
         }
-        
+
         if newStacks.isEmpty {
-            if let finished = stopped.flatMap({ findFinished(stacks: $0) }) {
-                if parseLog { print("Finish with \(stackID(stack: finished))") }
-                return stackToTree(stack: finished.forceAll())
+            if let stopped = stopped, let finished = lrFindFinished(stopped) {
+                return stackToTree(finished)
             }
-            
             if parser.strict {
-                if parseLog, let _ = stopped {
-                    let tokenName = tokens.mainToken.map { parser.getName(term: $0.value) } ?? "none"
-                    print("Stuck with token \(tokenName)")
-                }
-                return nil
+                fatalError("No parse at \(pos)")
             }
-            
-            if recovering == 0 {
-                recovering = Rec.distance
-            }
+            if recovering == 0 { recovering = LrRec.distance }
         }
-        
+
         if recovering > 0, let stopped = stopped, let stoppedTokens = stoppedTokens {
             let finished: Stack?
-            if let stoppedAt = stoppedAt, stopped[0].pos > stoppedAt {
+            if let stoppedAt = self.stoppedAt, stopped[0].pos > stoppedAt {
                 finished = stopped[0]
             } else {
-                finished = runRecovery(stacks: stopped, tokens: stoppedTokens, newStacks: &newStacks)
+                finished = runRecovery(stopped, tokens: stoppedTokens, newStacks: &newStacks)
             }
-            
             if let finished = finished {
-                if parseLog { print("Force-finish \(stackID(stack: finished))") }
-                return stackToTree(stack: finished.forceAll())
+                return stackToTree(finished.forceAll())
             }
         }
-        
-        // Prune stacks during recovery
+
         if recovering > 0 {
-            let maxRemaining = recovering == 1 ? 1 : recovering * Rec.maxRemainingPerStep
+            let maxRemaining = recovering == 1 ? 1 : recovering * LrRec.maxRemainingPerStep
             if newStacks.count > maxRemaining {
                 newStacks.sort { $0.score > $1.score }
-                while newStacks.count > maxRemaining {
-                    newStacks.removeLast()
-                }
+                while newStacks.count > maxRemaining { newStacks.removeLast() }
             }
-            if newStacks.contains(where: { $0.reducePos > pos }) {
-                recovering -= 1
-            }
+            if newStacks.contains(where: { $0.reducePos > pos }) { recovering -= 1 }
         } else if newStacks.count > 1 {
-            // Prune duplicate or long-running stacks
             var i = 0
-            while i < (newStacks.count - 1) {
+            outer: while i < newStacks.count - 1 {
+                let stack = newStacks[i]
                 var j = i + 1
                 while j < newStacks.count {
-                    let stack = newStacks[i]
                     let other = newStacks[j]
                     if stack.sameState(other) ||
-                       (stack.buffer.count > Rec.minBufferLengthPrune && other.buffer.count > Rec.minBufferLengthPrune) {
-                        if (stack.score - other.score != 0 || stack.buffer.count - other.buffer.count != 0) {
-                            if stack.score > other.score || (stack.score == other.score && stack.buffer.count > other.buffer.count) {
-                                newStacks.remove(at: j)
-                                continue
-                            } else {
-                                newStacks.remove(at: i)
-                                i -= 1
-                                break
-                            }
+                        (stack.buffer.count > LrRec.minBufferLengthPrune &&
+                         other.buffer.count > LrRec.minBufferLengthPrune) {
+                        if (stack.score - other.score) > 0 || (stack.score == other.score && stack.buffer.count - other.buffer.count > 0) {
+                            newStacks.remove(at: j)
+                            j -= 1
+                        } else {
+                            newStacks.remove(at: i)
+                            continue outer
                         }
                     }
                     j += 1
                 }
                 i += 1
             }
-            
-            if newStacks.count > Rec.maxStackCount {
+            if newStacks.count > LrRec.maxStackCount {
                 newStacks.sort { $0.score > $1.score }
-                while newStacks.count > Rec.maxStackCount {
-                    newStacks.removeLast()
-                }
+                newStacks.removeLast(newStacks.count - LrRec.maxStackCount)
             }
         }
-        
+
+        self.stacks = newStacks
         minStackPos = newStacks[0].pos
         for i in 1..<newStacks.count {
-            if newStacks[i].pos < minStackPos {
-                minStackPos = newStacks[i].pos
-            }
+            if newStacks[i].pos < minStackPos { minStackPos = newStacks[i].pos }
         }
-        
-        self.stacks = newStacks
         return nil
     }
-    
-    public func stopAt(pos: Int) {
-        if let stoppedAt = stoppedAt, stoppedAt < pos {
+
+    public func stopAt(_ pos: Int) {
+        if let stoppedAt = self.stoppedAt, stoppedAt < pos {
             fatalError("Can't move stoppedAt forward")
         }
         self.stoppedAt = pos
     }
-    
-    func advanceStack(stack: inout Stack, stacks: inout [Stack], split: inout [Stack]) -> Bool {
+
+    private func advanceStack(_ stack: inout Stack, stacks: inout [Stack], split: inout [Stack]) -> Bool {
         let start = stack.pos
         let parser = self.parser
-        let base = parseLog ? stackID(stack: stack) + " -> " : ""
-        
-        if let stoppedAt = stoppedAt, start > stoppedAt {
-            return stack.forceReduce()
+
+        if let stoppedAt = self.stoppedAt, start > stoppedAt {
+            return stack.forceReduce() ? true : false
         }
-        
-        // Try to reuse fragments
-        if let fragments = fragments {
-            let strictCx = stack.curContext?.tracker.strict ?? false
-            let cxHash = strictCx ? (stack.curContext?.hash ?? 0) : 0
-            
-            var cached = fragments.nodeAt(pos: start)
-            while let c = cached {
-                let match: Int
-                if parser.nodeSet.types[c.type.id] === c.type {
-                    match = parser.getGoto(state: stack.state, term: c.type.id)
-                } else {
-                    match = -1
-                }
-                
-                if match > -1 && c.length > 0 &&
-                   (!strictCx || (c.prop(prop: nodePropContextHash) ?? 0) == cxHash) {
-                    stack.useNode(c, next: match)
-                    if parseLog { print("\(base)\(stackID(stack: stack)) (via reuse of \(parser.getName(term: c.type.id)))") }
+
+        if let fragments = self.fragments {
+            let strictCx = stack.curContext != nil && stack.curContext!.tracker.strict
+            let cxHash = strictCx ? stack.curContext!.hash : 0
+            var cached = fragments.nodeAt(start)
+            while cached != nil {
+                let match = parser.nodeSet.types[cached!.type.id] === cached!.type
+                    ? parser.getGoto(state: stack.state, term: cached!.type.id)
+                    : -1
+                if match > -1 && cached!.length > 0 &&
+                    (!strictCx || (cached!.prop(nodePropContextHash) ?? 0) == cxHash) {
+                    stack.useNode(cached!, next: match)
                     return true
                 }
-                
-                if c.children.isEmpty || c.positions[0] > 0 {
+                if !(cached! is Tree) || (cached! as! Tree).children.isEmpty || (cached! as! Tree).positions[0] > 0 {
                     break
                 }
-                
-                if case .tree(let inner) = c.children[0], c.positions[0] == 0 {
-                    cached = inner
+                let inner = (cached! as! Tree).children[0]
+                if let innerTree = inner as? Tree, (cached! as! Tree).positions[0] == 0 {
+                    cached = innerTree
                 } else {
                     break
                 }
             }
         }
-        
-        // Try default reduce
-        let defaultReduce = parser.stateSlot(state: stack.state, slot: ParseState.defaultReduce)
+
+        let defaultReduce = parser.stateSlot(stack.state, slot: ParseState.DefaultReduce)
         if defaultReduce > 0 {
             stack.reduce(defaultReduce)
-            if parseLog { print("\(base)\(stackID(stack: stack)) (via always-reduce \(parser.getName(term: defaultReduce & Action.valueMask)))") }
             return true
         }
-        
-        // Force reduce if stack is too deep
-        if stack.stack.count >= Rec.cutDepth {
-            while stack.stack.count > Rec.cutTo && stack.forceReduce() {
-                // Keep reducing
-            }
+
+        if stack.stack.count >= LrRec.cutDepth {
+            while stack.stack.count > LrRec.cutTo && stack.forceReduce() {}
         }
-        
-        // Get and apply token actions
-        let actions = tokens.getActions(stack: stack)
-        for i in stride(from: 0, to: actions.count, by: 3) {
-            let action = actions[i]
-            let term = actions[i + 1]
-            let end = actions[i + 2]
-            let last = (i + 3) >= actions.count || split.isEmpty
-            let localStack: Stack
-            if last {
-                localStack = stack
-            } else {
-                localStack = stack.split()
-            }
-            
+
+        let actions = tokens.getActions(stack)
+        var i = 0
+        while i < actions.count {
+            let action = actions[i]; i += 1
+            let term = actions[i]; i += 1
+            let end = actions[i]; i += 1
+            let isLast = i >= actions.count
+            let localStack = isLast ? stack : stack.split()
             let main = tokens.mainToken
-            localStack.apply(action, term, nextStart: main?.start ?? localStack.pos, nextEnd: end)
-            if parseLog {
-                let kind = (action & Action.reduceFlag) == 0
-                    ? "shift"
-                    : "reduce of \(parser.getName(term: action & Action.valueMask))"
-                print("\(base)\(stackID(stack: localStack)) (via \(kind) for \(parser.getName(term: term)) @ \(start)\(localStack === stack ? "" : ", split"))")
-            }
-            
-            if last {
+            localStack.apply(action: action, next: term, nextStart: main?.start ?? localStack.pos, nextEnd: end)
+            if isLast {
+                stack = localStack
                 return true
             } else if localStack.pos > start {
                 stacks.append(localStack)
@@ -760,555 +484,528 @@ class Parse: PartialParse {
                 split.append(localStack)
             }
         }
-        
         return false
     }
-    
-    func advanceFully(stack: inout Stack, newStacks: inout [Stack]) -> Bool {
+
+    private func advanceFully(_ stack: inout Stack, newStacks: inout [Stack]) -> Bool {
         let pos = stack.pos
-        var emptySplit: [Stack] = []
         while true {
-            if !advanceStack(stack: &stack, stacks: &newStacks, split: &emptySplit) {
-                return false
-            }
+            var splitStacks: [Stack] = []
+            if !advanceStack(&stack, stacks: &newStacks, split: &splitStacks) { return false }
+            newStacks.append(contentsOf: splitStacks)
             if stack.pos > pos {
-                pushStackDedup(stack: stack, newStacks: &newStacks)
+                lrPushStackDedup(stack, newStacks: &newStacks)
                 return true
             }
         }
     }
-    
-    func runRecovery(stacks: [Stack], tokens: [Int], newStacks: inout [Stack]) -> Stack? {
-        var finished: Stack?
+
+    private func runRecovery(_ stacks: [Stack], tokens: [Int], newStacks: inout [Stack]) -> Stack? {
+        var finished: Stack? = nil
         var restarted = false
-        
         for i in 0..<stacks.count {
             var stack = stacks[i]
-            let token = tokens[i * 2]
-            let tokenEnd = tokens[i * 2 + 1]
-            let base = parseLog ? stackID(stack: stack) + " -> " : ""
-            
+            let token = tokens[i << 1]
+            var tokenEnd = tokens[(i << 1) + 1]
+
             if stack.deadEnd {
-                if restarted {
-                    continue
-                }
+                if restarted { continue }
                 restarted = true
                 stack.restart()
-                if parseLog { print("\(base)\(stackID(stack: stack)) (restarted)") }
-                let done = advanceFully(stack: &stack, newStacks: &newStacks)
-                if done {
-                    continue
-                }
+                var s = stack
+                if advanceFully(&s, newStacks: &newStacks) { continue }
+                stack = s
             }
-            
+
             var force = stack.split()
-            var forceBase = base
-            for _ in 0..<Rec.forceReduceLimit {
-                if !force.forceReduce() {
-                    break
-                }
-                if parseLog { print("\(forceBase)\(stackID(stack: force)) (via force-reduce)") }
-                let done = advanceFully(stack: &force, newStacks: &newStacks)
-                if done {
-                    break
-                }
-                if parseLog { forceBase = stackID(stack: force) + " -> " }
+            for _ in 0..<LrRec.forceReduceLimit {
+                if !force.forceReduce() { break }
+                var f = force
+                if advanceFully(&f, newStacks: &newStacks) { break }
+                force = f
             }
-            
-            for var insert in stack.recoverByInsert(token) {
-                if parseLog { print("\(base)\(stackID(stack: insert)) (via recover-insert)") }
-                _ = advanceFully(stack: &insert, newStacks: &newStacks)
+
+            for insert in stack.recoverByInsert(token) {
+                var ins = insert
+                _ = advanceFully(&ins, newStacks: &newStacks)
             }
-            
+
             if stream.end > stack.pos {
-                var tokenEnd = tokenEnd
-                var token = token
                 if tokenEnd == stack.pos {
                     tokenEnd += 1
-                    token = LrTerm.err
                 }
-                stack.recoverByDelete(token, nextEnd: tokenEnd)
-                if parseLog { print("\(base)\(stackID(stack: stack)) (via recover-delete \(parser.getName(term: token)))") }
-                pushStackDedup(stack: stack, newStacks: &newStacks)
+                stack.recoverByDelete(token, tokenEnd)
+                lrPushStackDedup(stack, newStacks: &newStacks)
             } else if finished == nil || finished!.score < force.score {
                 finished = force
             }
         }
-        
         return finished
     }
-    
-    func stackToTree(stack: Stack) -> Tree {
-        stack.close()
-        return Tree.build(
-            data: BuildData(
-                buffer: .cursor(StackBufferCursor.create(stack)),
-                nodeSet: parser.nodeSet,
-                topID: topTerm,
-                start: ranges[0].from,
-                length: stack.pos - ranges[0].from,
-                maxBufferLength: parser.bufferLength,
-                reused: reused,
-                minRepeatType: parser.minRepeatTerm
-            )
-        )
-    }
 
-    func stackID(stack: Stack) -> String {
-        let oid = ObjectIdentifier(stack)
-        if let id = stackIDs[oid] {
-            return id + stack.toString()
-        }
-        let id = String(UnicodeScalar(nextStackID)!)
-        nextStackID += 1
-        stackIDs[oid] = id
-        return id + stack.toString()
+    public func stackToTree(_ stack: Stack) -> Tree {
+        stack.close()
+        return Tree.build(data: BuildData(
+            buffer: StackBufferCursor.create(stack),
+            nodeSet: parser.nodeSet,
+            topID: topTerm,
+            start: ranges[0].from,
+            length: stack.pos - ranges[0].from,
+            maxBufferLength: parser.bufferLength,
+            reused: reused,
+            minRepeatType: parser.minRepeatTerm
+        ))
     }
 }
 
-/// LR parser with grammar tables
+func lrPushStackDedup(_ stack: Stack, newStacks: inout [Stack]) {
+    for i in 0..<newStacks.count {
+        let other = newStacks[i]
+        if other.pos == stack.pos && other.sameState(stack) {
+            if newStacks[i].score < stack.score { newStacks[i] = stack }
+            return
+        }
+    }
+    newStacks.append(stack)
+}
+
+func lrFindFinished(_ stacks: [Stack]) -> Stack? {
+    var best: Stack? = nil
+    for stack in stacks {
+        let stopped = stack.p.stoppedAt
+        if (stack.pos == stack.p.stream.end || (stopped != nil && stack.pos > stopped!)) &&
+            stack.p.parser.stateFlag(stack.state, flag: StateFlag.Accepting) &&
+            (best == nil || best!.score < stack.score) {
+            best = stack
+        }
+    }
+    return best
+}
+
+public class LrDialect {
+    public let source: String?
+    public let flags: [Bool]
+    public let disabled: [UInt8]?
+
+    public init(source: String?, flags: [Bool], disabled: [UInt8]?) {
+        self.source = source
+        self.flags = flags
+        self.disabled = disabled
+    }
+
+    public func allows(term: Int) -> Bool {
+        guard let disabled = disabled else { return true }
+        return term < disabled.count && disabled[term] == 0
+    }
+}
+
+public class ContextTracker {
+    public let start: Any
+    public let shift: (Any, Int, Stack, InputStream) -> Any
+    public let reduce: (Any, Int, Stack, InputStream) -> Any
+    public let reuse: (Any, Tree, Stack, InputStream) -> Any
+    public let hash: (Any) -> Int
+    public let strict: Bool
+
+    public init(
+        start: Any,
+        shift: ((Any, Int, Stack, InputStream) -> Any)? = nil,
+        reduce: ((Any, Int, Stack, InputStream) -> Any)? = nil,
+        reuse: ((Any, Tree, Stack, InputStream) -> Any)? = nil,
+        hash: ((Any) -> Int)? = nil,
+        strict: Bool = true
+    ) {
+        self.start = start
+        self.shift = shift ?? { ctx, _, _, _ in ctx }
+        self.reduce = reduce ?? { ctx, _, _, _ in ctx }
+        self.reuse = reuse ?? { ctx, _, _, _ in ctx }
+        self.hash = hash ?? { _ in 0 }
+        self.strict = strict
+    }
+}
+
 public class LRParser: Parser {
-    let states: [UInt32]
-    let data: [UInt16]
-    let goto: [UInt16]
-    let maxTerm: Int
-    let minRepeatTerm: Int
-    var tokenizers: [any Tokenizer]
-    let topRules: [String: [Int]]
-    var context: ContextTracker<Any>?
-    let dialects: [String: Int]
-    let dynamicPrecedences: [Int: Int]?
-    let specialized: [UInt16]
-    var specializers: [(String, Stack) -> Int]
-    var specializerSpecs: [SpecializerSpec]
-    let tokenPrecTable: Int
-    let termNames: [Int: String]?
-    let maxNode: Int
-    var dialect: Dialect
-    var wrappers: [ParseWrapper] = []
-    var top: [Int]
-    var bufferLength: Int
-    var strict: Bool
-    var nodeSet: NodeSet
-    let eofTerm: Int
-    
-    init(spec: ParserSpec) {
-        if spec.version != File.version {
-            fatalError("Parser version (\(spec.version)) doesn't match runtime version (\(File.version))")
+    public let states: [UInt32]
+    public let data: [UInt16]
+    public let goto: [UInt16]
+    public let maxTerm: Int
+    public let minRepeatTerm: Int
+    public var tokenizers: [TokenizerProtocol]
+    public let topRules: [String: [Int]]
+    public var context: ContextTracker?
+    public let dialects: [String: Int]
+    public let dynamicPrecedences: [Int: Int]?
+    public var specialized: [UInt16]
+    public var specializers: [(String, Stack) -> Int]
+    public var specializerSpecs: [SpecializerSpec]
+    public let tokenPrecTable: Int
+    public let termNames: [Int: String]?
+    public let maxNode: Int
+    public var dialect: LrDialect
+    public var wrappers: [ParseWrapper] = []
+    public var top: (Int, Int)
+    public var bufferLength: Int
+    public var strict: Bool
+    public var nodeSet: NodeSet
+
+    private init(copying other: LRParser) {
+        states = other.states
+        data = other.data
+        goto = other.goto
+        maxTerm = other.maxTerm
+        minRepeatTerm = other.minRepeatTerm
+        tokenizers = other.tokenizers
+        topRules = other.topRules
+        context = other.context
+        dialects = other.dialects
+        dynamicPrecedences = other.dynamicPrecedences
+        specialized = other.specialized
+        specializers = other.specializers
+        specializerSpecs = other.specializerSpecs
+        tokenPrecTable = other.tokenPrecTable
+        termNames = other.termNames
+        maxNode = other.maxNode
+        dialect = other.dialect
+        wrappers = other.wrappers
+        top = other.top
+        bufferLength = other.bufferLength
+        strict = other.strict
+        nodeSet = other.nodeSet
+        super.init()
+    }
+
+    public struct SpecializerSpec {
+        public let term: Int
+        public let get: ((String, Stack) -> Int)?
+        public let external: ((String, Stack) -> Int)?
+        public let extend: Bool
+    }
+
+    public struct ParserSpec {
+        public let version: Int
+        public let states: Any
+        public let stateData: Any
+        public let goto: Any
+        public let nodeNames: String
+        public let maxTerm: Int
+        public let repeatNodeCount: Int
+        public let nodeProps: [[Any]]?
+        public let propSources: [NodePropSource]?
+        public let skippedNodes: [Int]?
+        public let tokenData: Any
+        public let tokenizers: [Any]
+        public let topRules: [String: [Int]]
+    public var context: ContextTracker?
+        public let dialects: [String: Int]?
+        public let dynamicPrecedences: [Int: Int]?
+        public let specialized: [SpecializerSpec]?
+        public let tokenPrec: Int
+        public let termNames: [Int: String]?
+    }
+
+    public init(spec: ParserSpec) {
+        if spec.version != LrFile.Version {
+            fatalError("Parser version (\(spec.version)) doesn't match runtime version (\(LrFile.Version))")
         }
-        
-        let parsedNodeNames = spec.nodeNames.split(separator: " ").map { String($0) }
-        self.minRepeatTerm = parsedNodeNames.count
-        var allNodeNames = parsedNodeNames
-        for _ in 0..<spec.repeatNodeCount {
-            allNodeNames.append("")
-        }
-        
+        var nodeNames = spec.nodeNames.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        self.minRepeatTerm = nodeNames.count
+        for _ in 0..<spec.repeatNodeCount { nodeNames.append("") }
+
         let topTerms = spec.topRules.values.map { $0[1] }
-        var nodeProps: [[(NodeProp<Any>?, Any?)]] = (0..<allNodeNames.count).map { _ in [] }
-        
-        func setProp(nodeID: Int, prop: NodeProp<Any>?, value: Any) {
-            guard let prop = prop else { return }
-            nodeProps[nodeID].append((prop, prop.deserialize(String(describing: value)) as Any?))
+        var nodeProps: [[(NodePropBase, Any)]] = Array(repeating: [], count: nodeNames.count)
+
+        func setProp(_ nodeID: Int, _ prop: NodePropBase, _ value: Any) {
+            nodeProps[nodeID].append((prop, value))
         }
-        
-        if let nodePropsSpec = spec.nodeProps {
-            for propSpec in nodePropsSpec {
-                var prop: NodeProp<Any>? = nil
-                if let propName = propSpec[0] as? String {
-                    // Get NodeProp by name - this would need proper implementation
-                    // prop = NodeProp.getByName(propName)
-                    _ = propName
-                } else {
-                    prop = propSpec[0] as? NodeProp<Any>
+
+        if let specNodeProps = spec.nodeProps {
+            for propSpec in specNodeProps {
+                guard propSpec.count > 1 else { continue }
+                var propBase: NodePropBase? = nil
+                if let prop = propSpec[0] as? NodePropBase {
+                    propBase = prop
+                } else if let name = propSpec[0] as? String {
+                    fatalError("String-based node prop lookup not supported: \(name)")
                 }
-                
+                guard let prop = propBase else { continue }
                 var i = 1
                 while i < propSpec.count {
                     let next = propSpec[i] as! Int
                     i += 1
                     if next >= 0 {
-                        setProp(nodeID: next, prop: prop, value: propSpec[i])
+                        let value = propSpec[i] as! String
                         i += 1
+                        setProp(next, prop, value)
                     } else {
-                        let value = propSpec[i - next]
+                        let value = propSpec[i + (-next - 1)] as! String
                         for _ in 0..<(-next) {
-                            setProp(nodeID: propSpec[i] as! Int, prop: prop, value: value)
+                            let nodeID = propSpec[i] as! Int
                             i += 1
+                            setProp(nodeID, prop, value)
                         }
+                        i += 1
                     }
                 }
             }
         }
-        
-        let localMinRepeatTerm = self.minRepeatTerm
-        let types: [NodeType] = allNodeNames.enumerated().map { (index, name) -> NodeType in
-            var props: [Int: Any] = [:]
-            for (prop, value) in nodeProps[index] {
-                if let prop = prop, let value = value {
-                    props[prop.id] = value
-                }
-            }
-            var flags = 0
-            if index < localMinRepeatTerm && !name.isEmpty {
-                // non-anonymous
-            } else {
-                flags |= NodeFlag.anonymous.rawValue
-            }
-            if topTerms.contains(index) {
-                flags |= NodeFlag.top.rawValue
-            }
-            if index == 0 {
-                flags |= NodeFlag.error.rawValue
-            }
-            if spec.skippedNodes?.contains(index) == true {
-                flags |= NodeFlag.skipped.rawValue
-            }
-            return NodeType(
-                name: index >= localMinRepeatTerm ? "" : name,
-                props: props,
+
+        let propArr = nodeProps.map { np -> [Any] in
+            np.map { pair in pair }
+        }
+
+        let minRepeat = self.minRepeatTerm
+        self.nodeSet = NodeSet(types: nodeNames.enumerated().map { (index, name) in
+            NodeType.define(spec: NodeType.DefineSpec(
                 id: index,
-                flags: flags
-            )
-        }
-        
-        self.nodeSet = NodeSet(types: types)
-        
+                name: index >= minRepeat ? nil : name,
+                props: propArr[index].isEmpty ? nil : propArr[index] as? [Any],
+                top: topTerms.contains(index),
+                error: index == 0,
+                skipped: spec.skippedNodes?.contains(index) ?? false
+            ))
+        })
+
         if let propSources = spec.propSources {
-            // self.nodeSet = self.nodeSet.extend(...propSources)
-            _ = propSources
+            self.nodeSet = propSources.reduce(self.nodeSet) { $0.extend($1) }
         }
-        
+
         self.strict = false
-        self.bufferLength = defaultBufferLength
-        
-        let tokenArray = decodeArray(ArrayOrString.string(spec.tokenData))
+        self.bufferLength = lrDefaultBufferLength
+
+        let tokenArray = decodeArray(spec.tokenData)
         self.context = spec.context
         self.specializerSpecs = spec.specialized ?? []
-        self.specialized = self.specializerSpecs.map { UInt16($0.term) }
-        self.specializers = self.specializerSpecs.map { getSpecializer(spec: $0) }
-        
-        self.states = decodeArrayToUInt32(spec.states)
-        self.data = decodeArrayToUInt16(spec.stateData)
-        self.goto = decodeArrayToUInt16(spec.goto)
+        self.specialized = [UInt16](repeating: 0, count: self.specializerSpecs.count)
+        for i in 0..<self.specializerSpecs.count {
+            self.specialized[i] = UInt16(self.specializerSpecs[i].term)
+        }
+        self.specializers = self.specializerSpecs.map { lrGetSpecializer($0) }
+
+        self.states = decodeArray32(spec.states)
+        self.data = decodeArray(spec.stateData)
+        self.goto = decodeArray(spec.goto)
         self.maxTerm = spec.maxTerm
         self.tokenizers = spec.tokenizers.map { value in
-            if let intValue = value as? Int {
-                return TokenGroup(data: tokenArray, id: intValue)
-            } else {
-                return value as! any Tokenizer
+            if let intVal = value as? Int {
+                return TokenGroup(data: tokenArray, id: intVal)
             }
+            return value as! TokenizerProtocol
         }
         self.topRules = spec.topRules
         self.dialects = spec.dialects ?? [:]
-        self.dynamicPrecedences = spec.dynamicPrecedences
+        self.dynamicPrecedences = spec.dynamicPrecedences ?? nil
         self.tokenPrecTable = spec.tokenPrec
-        self.termNames = spec.termNames
+        self.termNames = spec.termNames ?? nil
         self.maxNode = self.nodeSet.types.count - 1
-        self.top = Array(topRules.values.first ?? [0, 0])
-        self.eofTerm = maxNode + 1
-        
-        // Compute dialect inline to avoid calling self before full initialization
-        let dialectValues = Array(dialects.keys)
-        let dialectFlags = Array(repeating: false, count: dialectValues.count)
-        var dialectDisabled: [UInt8]?
-        for i in 0..<dialectValues.count {
-            if let dialectIndex = dialects[dialectValues[i]] {
-                if dialectDisabled == nil {
-                    dialectDisabled = Array(repeating: 0, count: maxTerm + 1)
-                }
-                var j = dialectIndex
-                while data[j] != Seq.end {
-                    dialectDisabled![Int(data[j])] = 1
-                    j += 1
-                }
-            }
-        }
-        self.dialect = Dialect(source: nil, flags: dialectFlags, disabled: dialectDisabled)
+
+        self.dialect = LrDialect(source: nil, flags: [], disabled: nil)
+        self.top = (0, 0)
+        super.init()
+        self.dialect = parseDialect()
+        let first = self.topRules.min(by: { $0.value[1] < $1.value[1] })!
+        self.top = (first.value[0], first.value[1])
     }
-    
-    public func createParse(input: any Input, fragments: [TreeFragment], ranges: [Range]) -> any PartialParse {
-        var parse: any PartialParse = Parse(parser: self, input: input, fragments: fragments, ranges: ranges)
-        for wrapper in wrappers {
-            parse = wrapper(parse, input, fragments, ranges)
+
+    public override func createParse(input: InputProtocol, fragments: [TreeFragment], ranges: [Range]) -> any PartialParse {
+        var parse: any PartialParse = LrParse(parser: self, input: input, fragments: fragments, ranges: ranges)
+        for w in wrappers {
+            var ap = AnyPartialParse(parse)
+            parse = w(&ap, input, fragments, ranges)
         }
         return parse
     }
-    
-    func getGoto(state: Int, term: Int, loose: Bool = false) -> Int {
+
+    public func getGoto(state: Int, term: Int, loose: Bool = false) -> Int {
         let table = goto
-        if term >= table[0] {
-            return -1
-        }
-        
+        if term >= Int(table[0]) { return -1 }
         var pos = Int(table[term + 1])
         while true {
-            let groupTag = table[pos]
+            let groupTag = Int(table[pos])
             pos += 1
             let last = groupTag & 1
-            let target = table[pos]
+            let target = Int(table[pos])
             pos += 1
-            
-            if last != 0 && loose {
-                return Int(target)
-            }
-            
-            let end = pos + Int(groupTag >> 1)
+            if last != 0 && loose { return target }
+            let end = pos + (groupTag >> 1)
             while pos < end {
-                if table[pos] == UInt16(state) {
-                    return Int(target)
-                }
+                if Int(table[pos]) == state { return target }
                 pos += 1
             }
-            
-            if last != 0 {
-                return -1
-            }
+            if last != 0 { return -1 }
         }
     }
-    
-    func hasAction(state: Int, terminal: Int) -> Int {
-        let data = self.data
-        
+
+    public func hasAction(state: Int, terminal: Int) -> Int {
         for set in 0..<2 {
-            var i = stateSlot(state: state, slot: set == 1 ? ParseState.skip : ParseState.actions)
-            
+            var i = stateSlot(state, slot: set == 0 ? ParseState.Actions : ParseState.Skip)
             while true {
                 let next = Int(data[i])
-                if next == Seq.end {
-                    if data[i + 1] == Seq.next {
-                        i = pair(data: data, off: i + 2)
-                    } else if data[i + 1] == Seq.other {
-                        return pair(data: data, off: i + 2)
+                if next == Seq.End {
+                    if Int(data[i + 1]) == Seq.Next {
+                        i = lrPair(data, i + 2)
+                        continue
+                    } else if Int(data[i + 1]) == Seq.Other {
+                        return lrPair(data, i + 2)
                     } else {
                         break
                     }
                 }
-                
-                if next == terminal || next == LrTerm.err {
-                    return pair(data: data, off: i + 1)
+                if next == terminal || next == LrTerm.Err {
+                    return lrPair(data, i + 1)
                 }
-                
                 i += 3
             }
         }
-        
         return 0
     }
-    
-    func stateSlot(state: Int, slot: Int) -> Int {
-        let idx = state * ParseState.size + slot
-        guard idx >= 0 && idx < states.count else {
-            return 0
-        }
-        return Int(states[idx])
-    }
-    
-    func stateFlag(state: Int, flag: Int) -> Bool {
-        return (stateSlot(state: state, slot: ParseState.flags) & flag) > 0
-    }
-    
-    func validAction(state: Int, action: Int) -> Bool {
-        return allActions(state: state) { a in
-            a == action ? a : nil
-        } != nil
-    }
-    
-    func allActions(state: Int, action: (Int) -> Int?) -> Int? {
-        let deflt = stateSlot(state: state, slot: ParseState.defaultReduce)
-        var result: Int? = deflt != 0 ? action(deflt) : nil
-        
-        var i = stateSlot(state: state, slot: ParseState.actions)
-        while result == nil {
-            if data[i] == Seq.end {
-                if data[i + 1] == Seq.next {
-                    i = pair(data: data, off: i + 2)
-                } else {
-                    break
-                }
-            }
-            result = action(pair(data: data, off: i + 1))
-            i += 3
-        }
-        
-        return result
-    }
-    
-    func nextStates(state: Int) -> [Int] {
-        var result: [Int] = []
-        var i = stateSlot(state: state, slot: ParseState.actions)
-        
-        while true {
-            if data[i] == Seq.end {
-                if data[i + 1] == Seq.next {
-                    i = pair(data: data, off: i + 2)
-                } else {
-                    break
-                }
-            }
-            
-            if (Int(data[i + 2]) & (Action.reduceFlag >> 16)) == 0 {
-                let value = Int(data[i + 1])
-                if !result.contains(where: { $0 == value }) {
-                    result.append(Int(data[i]))
-                    result.append(value)
-                }
-            }
-            
-            i += 3
-        }
-        
-        return result
-    }
-    
-    private init(
-        states: [UInt32],
-        data: [UInt16],
-        goto: [UInt16],
-        maxTerm: Int,
-        minRepeatTerm: Int,
-        tokenizers: [any Tokenizer],
-        topRules: [String: [Int]],
-        context: ContextTracker<Any>?,
-        dialects: [String: Int],
-        dynamicPrecedences: [Int: Int]?,
-        specialized: [UInt16],
-        specializers: [(String, Stack) -> Int],
-        specializerSpecs: [SpecializerSpec],
-        tokenPrecTable: Int,
-        termNames: [Int: String]?,
-        maxNode: Int,
-        dialect: Dialect,
-        wrappers: [ParseWrapper],
-        top: [Int],
-        bufferLength: Int,
-        strict: Bool,
-        nodeSet: NodeSet,
-        eofTerm: Int
-    ) {
-        self.states = states
-        self.data = data
-        self.goto = goto
-        self.maxTerm = maxTerm
-        self.minRepeatTerm = minRepeatTerm
-        self.tokenizers = tokenizers
-        self.topRules = topRules
-        self.context = context
-        self.dialects = dialects
-        self.dynamicPrecedences = dynamicPrecedences
-        self.specialized = specialized
-        self.specializers = specializers
-        self.specializerSpecs = specializerSpecs
-        self.tokenPrecTable = tokenPrecTable
-        self.termNames = termNames
-        self.maxNode = maxNode
-        self.dialect = dialect
-        self.wrappers = wrappers
-        self.top = top
-        self.bufferLength = bufferLength
-        self.strict = strict
-        self.nodeSet = nodeSet
-        self.eofTerm = eofTerm
+
+    public func stateSlot(_ state: Int, slot: Int) -> Int {
+        return Int(states[state * ParseState.Size + slot])
     }
 
-    public func configure(config: ParserConfig) -> LRParser {
-        let copy = LRParser(
-            states: states,
-            data: data,
-            goto: goto,
-            maxTerm: maxTerm,
-            minRepeatTerm: minRepeatTerm,
-            tokenizers: tokenizers,
-            topRules: topRules,
-            context: context,
-            dialects: dialects,
-            dynamicPrecedences: dynamicPrecedences,
-            specialized: specialized,
-            specializers: specializers,
-            specializerSpecs: specializerSpecs,
-            tokenPrecTable: tokenPrecTable,
-            termNames: termNames,
-            maxNode: maxNode,
-            dialect: dialect,
-            wrappers: wrappers,
-            top: top,
-            bufferLength: bufferLength,
-            strict: strict,
-            nodeSet: nodeSet,
-            eofTerm: eofTerm
-        )
-        if let props = config.props {
-            copy.nodeSet = nodeSet.extend(props)
+    public func stateFlag(_ state: Int, flag: Int) -> Bool {
+        return (stateSlot(state, slot: ParseState.Flags) & flag) > 0
+    }
+
+    public func validAction(_ state: Int, action: Int) -> Bool {
+        return allActions(state) { a in a == action ? true : nil } ?? false
+    }
+
+    public func allActions<T>(_ state: Int, action: (Int) -> T?) -> T? {
+        let deflt = stateSlot(state, slot: ParseState.DefaultReduce)
+        if deflt > 0 {
+            if let result = action(deflt) { return result }
         }
-        if let topName = config.top {
-            if let info = topRules[topName] {
-                copy.top = info
+        var i = stateSlot(state, slot: ParseState.Actions)
+        while true {
+            if Int(data[i]) == Seq.End {
+                if Int(data[i + 1]) == Seq.Next {
+                    i = lrPair(data, i + 2)
+                } else {
+                    break
+                }
             } else {
-                fatalError("Invalid top rule name \(topName)")
+                if let result = action(lrPair(data, i + 1)) { return result }
+                i += 3
             }
         }
-        if let tokenizers = config.tokenizers {
+        return nil
+    }
+
+    public func nextStates(_ state: Int) -> [Int] {
+        var result: [Int] = []
+        var i = stateSlot(state, slot: ParseState.Actions)
+        while true {
+            if Int(data[i]) == Seq.End {
+                if Int(data[i + 1]) == Seq.Next {
+                    i = lrPair(data, i + 2)
+                } else {
+                    break
+                }
+            } else {
+                let actionVal = Int(data[i + 2])
+                if (actionVal & (Action.ReduceFlag >> 16)) == 0 {
+                    let value = Int(data[i + 1])
+                    var found = false
+                    for j in stride(from: 1, to: result.count, by: 2) {
+                        if result[j] == value { found = true; break }
+                    }
+                    if !found {
+                        result.append(Int(data[i]))
+                        result.append(value)
+                    }
+                }
+                i += 3
+            }
+        }
+        return result
+    }
+
+    public func configure(
+        props: [NodePropSource]? = nil,
+        top: String? = nil,
+        dialect: String? = nil,
+        tokenizers: [(from: TokenizerProtocol, to: TokenizerProtocol)]? = nil,
+        specializers: [(from: (String, Stack) -> Int, to: (String, Stack) -> Int)]? = nil,
+        contextTracker: ContextTracker? = nil,
+        strict: Bool? = nil,
+        wrap: ParseWrapper? = nil,
+        bufferLength: Int? = nil
+    ) -> LRParser {
+        let copy = LRParser(copying: self)
+
+        if let props = props {
+            copy.nodeSet = props.reduce(self.nodeSet) { $0.extend($1) }
+        }
+        if let top = top {
+            guard let info = self.topRules[top] else {
+                fatalError("Invalid top rule name \(top)")
+            }
+            copy.top = (info[0], info[1])
+        }
+        if let tokenizers = tokenizers {
             copy.tokenizers = self.tokenizers.map { t in
-                if let found = tokenizers.first(where: { ObjectIdentifier($0.from as AnyObject) == ObjectIdentifier(t as AnyObject) }) {
+                if let found = tokenizers.first(where: { ($0.from as AnyObject) === (t as AnyObject) }) {
                     return found.to
                 }
                 return t
             }
         }
-        if let specializers = config.specializers {
+        if let specializers = specializers {
             copy.specializers = self.specializers
             copy.specializerSpecs = self.specializerSpecs.enumerated().map { i, s in
-                if i < specializers.count {
-                    let replacement = specializers[i]
-                    let spec = SpecializerSpec(term: s.term, get: nil, external: replacement.to, extend: s.extend)
-                    copy.specializers[i] = getSpecializer(spec: spec)
+                if let found = specializers.first(where: { $0.from as AnyObject === s.external as AnyObject }) {
+                    let spec = SpecializerSpec(term: s.term, get: s.get, external: found.to, extend: s.extend)
+                    copy.specializers[i] = lrGetSpecializer(spec)
                     return spec
                 }
-                copy.specializers[i] = getSpecializer(spec: s)
                 return s
             }
         }
-        if let contextTracker = config.contextTracker {
+        if let contextTracker = contextTracker {
             copy.context = contextTracker
         }
-        if let dialect = config.dialect {
-            copy.dialect = parseDialect(dialect: dialect)
+        if let dialect = dialect {
+            copy.dialect = parseDialect(dialect)
         }
-        if let strict = config.strict {
+        if let strict = strict {
             copy.strict = strict
         }
-        if let wrap = config.wrap {
+        if let wrap = wrap {
             copy.wrappers = copy.wrappers + [wrap]
         }
-        if let bufferLength = config.bufferLength {
+        if let bufferLength = bufferLength {
             copy.bufferLength = bufferLength
         }
         return copy
     }
-    
+
     public func hasWrappers() -> Bool {
         return !wrappers.isEmpty
     }
-    
-    public func getName(term: Int) -> String {
-        if let termNames = termNames, let name = termNames[term], !name.isEmpty {
-            return name
+
+    public func getName(_ term: Int) -> String {
+        if let termNames = termNames, term < termNames.count {
+            return termNames[term] ?? String(term)
         }
-        let nodeName = term <= maxNode && !nodeSet.types[term].name.isEmpty ? nodeSet.types[term].name : nil
-        return nodeName ?? String(term)
-    }
-    
-    func dynamicPrecedence(term: Int) -> Int {
-        guard let dynamicPrecedences = dynamicPrecedences else {
-            return 0
+        if term <= maxNode {
+            return nodeSet.types[term].name.isEmpty ? String(term) : nodeSet.types[term].name
         }
-        return dynamicPrecedences[term] ?? 0
+        return String(term)
     }
-    
-    func parseDialect(dialect: String? = nil) -> Dialect {
-        let values = Array(dialects.keys)
+
+    public var eofTerm: Int { maxNode + 1 }
+
+    public var topNode: NodeType { nodeSet.types[top.1] }
+
+    public func dynamicPrecedence(_ term: Int) -> Int {
+        guard let prec = dynamicPrecedences else { return 0 }
+        return prec[term] ?? 0
+    }
+
+    public func parseDialect(_ dialect: String? = nil) -> LrDialect {
+        let values = Array(self.dialects.keys)
         var flags = Array(repeating: false, count: values.count)
-        
         if let dialect = dialect {
             for part in dialect.split(separator: " ") {
                 if let id = values.firstIndex(of: String(part)) {
@@ -1316,55 +1013,35 @@ public class LRParser: Parser {
                 }
             }
         }
-        
-        var disabled: [UInt8]?
+        var disabled: [UInt8]? = nil
         for i in 0..<values.count {
             if !flags[i] {
-                if disabled == nil {
-                    disabled = Array(repeating: 0, count: maxTerm + 1)
-                }
-                
-                if let dialectIndex = dialects[values[i]] {
-                    var j = dialectIndex
-                    while data[j] != Seq.end {
-                        disabled![Int(data[j])] = 1
-                        j += 1
+                var j = self.dialects[values[i]]!
+                while j < data.count && Int(data[j]) != Seq.End {
+                    if disabled == nil {
+                        disabled = [UInt8](repeating: 0, count: maxTerm + 1)
                     }
+                    if Int(data[j]) < disabled!.count {
+                        disabled![Int(data[j])] = 1
+                    }
+                    j += 1
                 }
             }
         }
-        
-        return Dialect(source: dialect, flags: flags, disabled: disabled)
+        return LrDialect(source: dialect, flags: flags, disabled: disabled)
     }
-    
-    static func deserialize(spec: Any) -> LRParser {
-        return LRParser(spec: spec as! ParserSpec)
+
+    public static func deserialize(spec: ParserSpec) -> LRParser {
+        return LRParser(spec: spec)
     }
 }
 
-// Helper functions for decoding arrays
-fileprivate func decodeArrayToUInt32(_ input: StringOrArray) -> [UInt32] {
-    let decoded: [Int]
-    switch input {
-    case .string(let str):
-        decoded = decodeArray(ArrayOrString.string(str))
-    case .uint32Array(let arr):
-        decoded = arr.map { Int($0) }
-    case .uint16Array(let arr):
-        decoded = arr.map { Int($0) }
+func lrGetSpecializer(_ spec: LRParser.SpecializerSpec) -> (String, Stack) -> Int {
+    if let external = spec.external {
+        let mask = spec.extend ? Specialize.Extend : Specialize.Specialize
+        return { value, stack in
+            return (external(value, stack) << 1) | mask
+        }
     }
-    return decoded.map { UInt32($0) }
-}
-
-fileprivate func decodeArrayToUInt16(_ input: StringOrArray) -> [UInt16] {
-    let decoded: [Int]
-    switch input {
-    case .string(let str):
-        decoded = decodeArray(ArrayOrString.string(str))
-    case .uint32Array(let arr):
-        decoded = arr.map { Int($0) }
-    case .uint16Array(let arr):
-        decoded = arr.map { Int($0) }
-    }
-    return decoded.map { UInt16($0) }
+    return spec.get!
 }

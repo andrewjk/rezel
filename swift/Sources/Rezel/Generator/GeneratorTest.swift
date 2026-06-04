@@ -1,434 +1,272 @@
 import Foundation
 
-private class StringInputAdapter: Input {
-    let string: String
-    init(_ string: String) { self.string = string }
-    var length: Int { string.count }
-    func chunk(from: Int) -> String {
-        let clamped = min(max(from, 0), string.utf16.count)
-        let idx = String.Index(utf16Offset: clamped, in: string)
-        return String(string[idx...])
-    }
-    var lineChunks: Bool { false }
-    func read(from: Int, to: Int) -> String {
-        let clampedFrom = min(max(from, 0), string.utf16.count)
-        let clampedTo = min(max(to, clampedFrom), string.utf16.count)
-        let start = String.Index(utf16Offset: clampedFrom, in: string)
-        let end = String.Index(utf16Offset: clampedTo, in: string)
-        return String(string[start..<end])
-    }
-}
+public class TestSpec {
+    public let name: String
+    public let props: [(prop: NodePropBase, value: Any)]
+    public let children: [TestSpec]
+    public let wildcard: Bool
 
-private class TestSpec {
-    let name: String
-    let props: [(propId: Int, value: Any)]
-    let children: [TestSpec]
-    let wildcard: Bool
-
-    init(
-        name: String,
-        props: [(propId: Int, value: Any)],
-        children: [TestSpec],
-        wildcard: Bool
-    ) {
-        self.name = name
-        self.props = props
-        self.children = children
-        self.wildcard = wildcard
+    public init(name: String, props: [(prop: NodePropBase, value: Any)], children: [TestSpec] = [], wildcard: Bool = false) {
+        self.name = name; self.props = props; self.children = children; self.wildcard = wildcard
     }
 
-    static func parse(_ spec: String) -> [TestSpec] {
+    public static func parse(_ spec: String) throws -> [TestSpec] {
         var pos = spec.startIndex
         var tok = "sof"
         var value = ""
 
-        func err() -> Never {
-            fatalError("Invalid test spec: \(spec)")
-        }
+        func err() -> Never { fatalError("Invalid test spec: \(spec)") }
 
         func advance() {
-            pos = spec.index(after: pos)
-        }
-
-        func peekChar() -> Character {
-            guard pos < spec.endIndex else { return "\0" }
-            return spec[pos]
-        }
-
-        @discardableResult
-        func next() -> String {
-            while pos < spec.endIndex && spec[pos].isWhitespace {
-                pos = spec.index(after: pos)
+            while pos < spec.endIndex && spec[pos].isWhitespace { pos = spec.index(after: pos) }
+            if pos == spec.endIndex { tok = "eof"; return }
+            let ch = spec[pos]; pos = spec.index(after: pos)
+            if ch == "(" && spec.distance(from: pos, to: spec.endIndex) >= 4 && spec[pos...].prefix(4) == "...)" {
+                pos = spec.index(pos, offsetBy: 4)
+                tok = "..."; return
             }
-            if pos == spec.endIndex {
-                tok = "eof"
-                return tok
-            }
-            let ch = peekChar()
-            advance()
-
-            if ch == "(" && spec[pos...].hasPrefix("...)") {
-                pos = spec.index(pos, offsetBy: 3)
-                tok = "..."
-                return tok
-            }
-
-            if ch == "[" || ch == "]" || ch == "(" || ch == ")" || ch == "," || ch == "=" {
-                tok = String(ch)
-                return tok
-            }
-
-            if ch != "[" && ch != "]" && ch != "(" && ch != ")" && ch != "," && ch != "=" && ch != "\"" && !ch.isWhitespace {
-                var name = ""
-                var cur = spec.index(before: pos)
-                while cur < spec.endIndex {
-                    let c = spec[cur]
-                    if c == "[" || c == "]" || c == "(" || c == ")" || c == "," || c == "=" || c == "\"" || c.isWhitespace {
-                        break
-                    }
-                    name.append(c)
-                    cur = spec.index(after: cur)
+            if "[](),=".contains(ch) { tok = String(ch); return }
+            if !ch.isWhitespace && !"[](),=\"".contains(ch) {
+                let start = spec.index(before: pos)
+                var end = start
+                while end < spec.endIndex && !spec[end].isWhitespace && !"[](),=\"".contains(spec[end]) {
+                    end = spec.index(after: end)
                 }
-                pos = cur
-                value = name
-                tok = "name"
-                return tok
+                value = String(spec[start..<end])
+                pos = end
+                tok = "name"; return
             }
-
             if ch == "\"" {
-                var content = "\""
-                var cur = pos
-                while cur < spec.endIndex && spec[cur] != "\"" {
-                    if spec[cur] == "\\" {
-                        cur = spec.index(after: cur)
-                        if cur < spec.endIndex {
-                            content.append(spec[cur])
-                        }
-                    } else {
-                        content.append(spec[cur])
-                    }
-                    cur = spec.index(after: cur)
+                let start = spec.index(before: pos)
+                var end = spec.index(after: start)
+                while end < spec.endIndex {
+                    if spec[end] == "\\" { end = spec.index(after: end); if end < spec.endIndex { end = spec.index(after: end) } }
+                    else if spec[end] == "\"" { end = spec.index(after: end); break }
+                    else { end = spec.index(after: end) }
                 }
-                if cur < spec.endIndex {
-                    content.append(spec[cur])
-                    cur = spec.index(after: cur)
+                let raw = String(spec[start..<end])
+                let jsonData = raw.data(using: .utf8) ?? Data()
+                if let parsed = try? JSONSerialization.jsonObject(with: jsonData, options: .fragmentsAllowed) as? String {
+                    value = parsed
+                } else {
+                    value = raw
                 }
-                pos = cur
-
-                // Remove surrounding quotes and unescape
-                let inner = content.dropFirst().dropLast()
-                value = inner.replacingOccurrences(of: "\\\"", with: "\"")
-                tok = "name"
-                return tok
+                pos = end
+                tok = "name"; return
             }
-
             err()
         }
+
+        advance()
 
         func parseSeq() -> [TestSpec] {
             var seq: [TestSpec] = []
             while tok != "eof" && tok != ")" {
-                seq.append(parse())
-                if tok == "," {
-                    next()
-                }
+                seq.append(parseSpec())
+                if tok == "," { advance() }
             }
             return seq
         }
 
-        func parse() -> TestSpec {
-            guard tok == "name" else { err() }
+        func parseSpec() -> TestSpec {
             let name = value
             var children: [TestSpec] = []
-            var props: [(propId: Int, value: Any)] = []
+            var props: [(prop: NodePropBase, value: Any)] = []
             var wildcard = false
-            next()
-
+            if tok != "name" { err() }
+            advance()
             if tok == "[" {
-                next()
+                advance()
                 while tok != "]" {
-                    guard tok == "name" else { err() }
+                    if tok != "name" { err() }
                     let propName = value
-                    next()
-                    var propVal = ""
+                    advance()
+                    var propValue: Any = ""
                     if tok == "=" {
-                        next()
-                        guard tok == "name" else { err() }
-                        propVal = value
-                        next()
+                        advance()
+                        if tok != "name" { err() }
+                        propValue = value
+                        advance()
                     }
-                    // Look up the NodeProp by name from well-known props
-                    if let (propId, deserializer) = lookupNodeProp(name: propName) {
-                        let deserialized = deserializer(propVal)
-                        props.append((propId: propId, value: deserialized))
+                    if let prop = nodePropByName[propName] as? NodeProp<String> {
+                        props.append((prop: prop, value: prop.deserialize(propValue as? String ?? "")))
+                    } else if let prop = nodePropByName[propName] {
+                        props.append((prop: prop, value: propValue))
                     }
                 }
-                guard tok == "]" else { err() }
-                next()
+                advance()
             }
-
             if tok == "(" {
-                next()
+                advance()
                 children = parseSeq()
-                guard tok == ")" else { err() }
-                next()
+                if tok != ")" { err() }
+                advance()
             } else if tok == "..." {
                 wildcard = true
-                next()
+                advance()
             }
-
             return TestSpec(name: name, props: props, children: children, wildcard: wildcard)
         }
 
-        next()
         let result = parseSeq()
-        guard tok == "eof" else { err() }
+        if tok != "eof" { err() }
         return result
     }
 
-    func matches(_ type: NodeType) -> Bool {
+    public func matches(_ type: NodeType) -> Bool {
         guard type.name == name else { return false }
-        for (propId, expectedValue) in props {
-            let actual = type.props[propId]
-            if !areEqual(actual, expectedValue) {
-                return false
+        for (prop, value) in props {
+            if let stringProp = prop as? NodeProp<String> {
+                let typeProp = type.prop(stringProp)
+                let specVal = value as? String ?? ""
+                if specVal.isEmpty {
+                    if typeProp != nil { return false }
+                    continue
+                }
+                guard let typeProp = typeProp else { return false }
+                if typeProp != specVal { return false }
+            } else if let stringArrayProp = prop as? NodeProp<[String]> {
+                let typeProp = type.prop(stringArrayProp)
+                let specVal = value as? [String] ?? []
+                if specVal.isEmpty {
+                    if typeProp != nil { return false }
+                    continue
+                }
+                guard let typeProp = typeProp else { return false }
+                if typeProp != specVal { return false }
             }
         }
         return true
     }
+}
 
-    private func areEqual(_ a: Any?, _ b: Any?) -> Bool {
-        guard let a = a, let b = b else { return a == nil && b == nil }
-        return "\(a)" == "\(b)"
+public func defaultIgnore(_ type: NodeType) -> Bool {
+    type.name.unicodeScalars.allSatisfy { !CharacterSet.alphanumerics.contains($0) }
+}
+
+private func toLineContext(_ file: String, _ index: Int) -> String {
+    let startIdx = file.index(file.startIndex, offsetBy: index)
+    let searchFrom = file.index(startIdx, offsetBy: 80, limitedBy: file.endIndex) ?? file.endIndex
+    var endIdx: String.Index
+    if let nlRange = file[searchFrom...].rangeOfCharacter(from: .newlines) {
+        endIdx = nlRange.lowerBound
+    } else {
+        endIdx = file.endIndex
     }
-}
-
-private func lookupNodeProp(name: String) -> (propId: Int, (String) -> Any)? {
-    switch name {
-    case "closedBy":
-        return (nodePropClosedBy.id, { nodePropClosedBy.deserialize($0) })
-    case "openedBy":
-        return (nodePropOpenedBy.id, { nodePropOpenedBy.deserialize($0) })
-    case "group":
-        return (nodePropGroup.id, { nodePropGroup.deserialize($0) })
-    case "isolate":
-        return (nodePropIsolate.id, { nodePropIsolate.deserialize($0) })
-    case "contextHash":
-        return (nodePropContextHash.id, { nodePropContextHash.deserialize($0) })
-    case "lookAhead":
-        return (nodePropLookAhead.id, { nodePropLookAhead.deserialize($0) })
-    case "mounted":
-        return (nodePropMounted.id, { nodePropMounted.deserialize($0) })
-    default:
-        return nil
-    }
-}
-
-private func defaultIgnore(_ type: NodeType) -> Bool {
-    return type.name.range(of: #"\W"#, options: .regularExpression) != nil
-}
-
-public func testTree(
-    tree: Tree,
-    expect: String,
-    mayIgnore: ((NodeType) -> Bool)? = nil
-) {
-    let ignore = mayIgnore ?? defaultIgnore
-    let specs = TestSpec.parse(expect)
-    var stack: [[TestSpec]] = [specs]
-    var pos: [Int] = [0]
-
-    tree.iterate(
-        enter: { n in
-            guard !n.name.isEmpty else { return true }
-            let last = stack.count - 1
-            let index = pos[last]
-            let seq = stack[last]
-            let nextSpec = index < seq.count ? seq[index] : nil
-
-            if let nextSpec = nextSpec, nextSpec.matches(n.type) {
-                if nextSpec.wildcard {
-                    pos[last] += 1
-                    return false
-                }
-                pos.append(0)
-                stack.append(nextSpec.children)
-                return true
-            } else if ignore(n.type) {
-                return false
-            } else {
-                let parent = last > 0 ? stack[last - 1][pos[last - 1]].name : "tree"
-                let after: String
-                if let nextSpec = nextSpec {
-                    after = nextSpec.name + (parent == "tree" ? "" : " in \(parent)")
-                } else {
-                    after = "end of \(parent)"
-                }
-                fatalError("Expected \(after), got \(n.name) at \(n.to) \n\(tree.toString())")
-            }
-        },
-        leave: { n in
-            guard !n.name.isEmpty else { return }
-            let last = stack.count - 1
-            let index = pos[last]
-            let seq = stack[last]
-            if index < seq.count {
-                let expected = seq[index...].map { $0.name }.joined(separator: ", ")
-                fatalError("Unexpected end of \(n.name). Expected \(expected) at \(n.from)\n\(tree.toString())")
-            }
-            pos.removeLast()
-            stack.removeLast()
-            pos[last - 1] += 1
-        }
-    )
-
-    if pos[0] != specs.count {
-        let expected = stack[0][pos[0]...].map { $0.name }.joined(separator: ", ")
-        fatalError("Unexpected end of tree. Expected \(expected) at \(tree.length)\n\(tree.toString())")
-    }
-}
-
-private func idx(_ location: Int, in string: String, offsetBy offset: Int = 0, limitedBy limit: String.Index? = nil) -> String.Index {
-    let total = min(max(location + offset, 0), string.utf16.count)
-    return String.Index(utf16Offset: total, in: string)
-}
-
-private func toLineContext(_ file: String, _ index: String.Index) -> String {
-    var endIndex = file.endIndex
-    if let searchRange = file.index(index, offsetBy: 80, limitedBy: file.endIndex) {
-        if let eol = file.range(of: "\n", range: searchRange..<file.endIndex) {
-            endIndex = eol.lowerBound
-        }
-    }
-    return String(file[index..<endIndex])
-        .components(separatedBy: "\n")
-        .map { "  | \($0)" }
+    return file[startIdx..<endIdx]
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .map { "  | " + $0 }
         .joined(separator: "\n")
 }
 
-public struct FileTest {
-    public let name: String
-    public let text: String
-    public let expected: String
-    public let configStr: String
-    public let config: [String: Any]?
-    public let strict: Bool
-    public let run: (any Parser) -> Void
-}
+public func fileTests(_ file: String, _ fileName: String) throws -> [(name: String, text: String, expected: String, run: (Parser) throws -> Void)] {
+    var tests: [(name: String, text: String, expected: String, run: (Parser) throws -> Void)] = []
+    let pattern = "\\s*#[ \\t]*(.*?)(?:\\r\\n|\\r|\\n)([\\s\\S]*?)==+>([\\s\\S]*?)(?:$|(?:\\r\\n|\\r|\\n)+(?=#))"
+    guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { return tests }
+    let fullRange = NSRange(file.startIndex..., in: file)
+    let matches = regex.matches(in: file, range: fullRange)
 
-public enum FileTestError: Error, CustomStringConvertible {
-    case unexpectedFormat(file: String, context: String)
-    case invalidHeader(String)
-
-    public var description: String {
-        switch self {
-        case .unexpectedFormat(let file, let context):
-            return "Unexpected file format in \(file) around\n\n\(context)"
-        case .invalidHeader(let header):
-            return "Invalid test header: \(header)"
+    var lastIndex = 0
+    for m in matches {
+        guard m.range.location == lastIndex else {
+            throw NSError(domain: "fileTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unexpected file format in \(fileName) around\n\n\(toLineContext(file, lastIndex))"])
         }
-    }
-}
+        guard let nameRange = Swift.Range(m.range(at: 1), in: file),
+              let textRange = Swift.Range(m.range(at: 2), in: file),
+              let expectedRange = Swift.Range(m.range(at: 3), in: file) else { continue }
 
-public func fileTests(
-    file: String,
-    fileName: String,
-    mayIgnore: ((NodeType) -> Bool)? = nil
-) throws -> [FileTest] {
-    let ignore = mayIgnore ?? defaultIgnore
-    var tests: [FileTest] = []
-    var lastIndex = file.startIndex
-
-    let pattern = #"\s*#[ \t]*(.*)(?:\r\n|\r|\n)([\s\S]*?)==+>([\s\S]*?)(?:$|(?:\r\n|\r|\n)+(?=#))"#
-    let regex = try! NSRegularExpression(pattern: pattern)
-
-    var searchStart = file.startIndex
-    while searchStart < file.endIndex {
-        let nsRange = NSRange(searchStart..<file.endIndex, in: file)
-        guard let match = regex.firstMatch(in: file, options: [], range: nsRange) else {
-            throw FileTestError.unexpectedFormat(file: fileName, context: toLineContext(file, lastIndex))
-        }
-
-        let fullNSRange = match.range
-        let fullLower = idx(fullNSRange.location, in: file)
-        let fullUpper = idx(fullNSRange.location, in: file, offsetBy: fullNSRange.length, limitedBy: file.endIndex)
-        let fullRange = fullLower..<fullUpper
-
-        let headerNS = match.range(at: 1)
-        let headerLower = idx(headerNS.location, in: file)
-        let headerUpper = idx(headerNS.location, in: file, offsetBy: headerNS.length, limitedBy: file.endIndex)
-        let headerRange = headerLower..<headerUpper
-
-        let inputNS = match.range(at: 2)
-        let inputLower = idx(inputNS.location, in: file)
-        let inputUpper = idx(inputNS.location, in: file, offsetBy: inputNS.length, limitedBy: file.endIndex)
-        let inputRange = inputLower..<inputUpper
-
-        let expectedNS = match.range(at: 3)
-        let expectedLower = idx(expectedNS.location, in: file)
-        let expectedUpper = idx(expectedNS.location, in: file, offsetBy: expectedNS.length, limitedBy: file.endIndex)
-        let expectedRange = expectedLower..<expectedUpper
-
-        let header = String(file[headerRange])
-        let text = String(file[inputRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawName = String(file[nameRange]).trimmingCharacters(in: .whitespaces)
+        let text = String(file[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         let expected = String(file[expectedRange]).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let headerRegex = try! NSRegularExpression(pattern: #"^(.*?)(\{.*?\})?$"#)
-        let headerNSRange = NSRange(header.startIndex..., in: header)
-        guard let headerMatch = headerRegex.firstMatch(in: header, options: [], range: headerNSRange) else {
-            throw FileTestError.invalidHeader(header)
-        }
-
-        let nameNS = headerMatch.range(at: 1)
-        let nameLower = idx(nameNS.location, in: header)
-        let nameUpper = idx(nameNS.location, in: header, offsetBy: nameNS.length, limitedBy: header.endIndex)
-        let name = String(header[nameLower..<nameUpper])
-
-        var configStr = ""
+        var name = rawName
         var config: [String: Any]? = nil
-        if headerMatch.range(at: 2).location != NSNotFound {
-            let configNS = headerMatch.range(at: 2)
-            let configLower = idx(configNS.location, in: header)
-            let configUpper = idx(configNS.location, in: header, offsetBy: configNS.length, limitedBy: header.endIndex)
-            configStr = String(header[configLower..<configUpper])
+
+        if let configRegex = try? NSRegularExpression(pattern: "\\{.*?\\}$", options: []),
+           let range = configRegex.firstMatch(in: rawName, range: NSRange(rawName.startIndex..., in: rawName))?.range {
+            let configStr = (rawName as NSString).substring(with: range)
+            name = (rawName as NSString).substring(to: range.location).trimmingCharacters(in: .whitespaces)
             if let data = configStr.data(using: .utf8),
-               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                config = obj
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                config = json
             }
         }
 
-        let strict = !expected.contains("⚠") && !expected.contains("...")
-
-        let capturedConfig = config
-        let capturedStrict = strict
-        let capturedConfigStr = configStr
-
-        tests.append(FileTest(
-            name: name,
-            text: text,
-            expected: expected,
-            configStr: capturedConfigStr,
-            config: capturedConfig,
-            strict: capturedStrict,
-            run: { parser in
-                var configuredParser = parser
-                if let lrParser = configuredParser as? LRParser, (capturedStrict || capturedConfig != nil) {
-                    var options = ParserConfig()
-                    options.strict = capturedStrict
-                    configuredParser = lrParser.configure(config: options)
-                }
-                let inputObj = StringInputAdapter(text)
-                let tree = configuredParser.parse(input: inputObj)
-                testTree(tree: tree, expect: expected, mayIgnore: ignore)
+        tests.append((name: name, text: text, expected: expected, run: { parser in
+            let p: Parser
+            if let lrp = parser as? LRParser, config != nil {
+                p = lrp.configure(
+                    top: config?["top"] as? String,
+                    dialect: config?["dialect"] as? String
+                )
+            } else {
+                p = parser
             }
-        ))
-
-        lastIndex = fullRange.upperBound
-        searchStart = fullRange.upperBound
-        if searchStart >= file.endIndex || file[searchStart...].allSatisfy({ $0.isWhitespace }) {
-            break
+            let tree = p.parse(input: text)
+            try testTree(tree, expected)
+        }))
+        lastIndex = m.range.location + m.range.length
+    }
+    if lastIndex != file.count {
+        let endOfContent = file.index(file.startIndex, offsetBy: min(lastIndex, file.count))
+        let trailing = file[endOfContent...].trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trailing.isEmpty {
+            throw NSError(domain: "fileTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unexpected file format in \(fileName) around\n\n\(toLineContext(file, min(lastIndex, file.count - 1)))"])
         }
     }
-
     return tests
+}
+
+public func testTree(_ tree: Tree, _ expect: String, _ mayIgnore: @escaping (NodeType) -> Bool = defaultIgnore) throws {
+    let specs = try TestSpec.parse(expect)
+    var stack = [specs]
+    var posArr = [0]
+    var caughtError: Error?
+
+    tree.cursor().iterate(enter: { n in
+        guard !n.name.isEmpty else { return true }
+        let name = n.name
+        let last = stack.count - 1
+        let index = posArr[last]
+        let seq = stack[last]
+        let next = index < seq.count ? seq[index] : nil
+
+        if let next = next, next.matches(n.type) {
+            if next.wildcard {
+                posArr[last] += 1
+                return false
+            }
+            posArr.append(0)
+            stack.append(next.children)
+            return true
+        } else if mayIgnore(n.type) {
+            return false
+        } else {
+            let parent = last > 0 ? stack[last - 1][posArr[last - 1]].name : "tree"
+            let after = next != nil ? "\(next!.name)\(parent == "tree" ? "" : " in \(parent)")" : "end of \(parent)"
+            caughtError = GenError("Expected \(after), got \(name) at \(n.to)")
+            return false
+        }
+    }, leave: { n in
+        guard !n.name.isEmpty else { return }
+        let name = n.name
+        let last = stack.count - 1
+        let index = posArr[last]
+        let seq = stack[last]
+        if index < seq.count {
+            let remaining = seq[index...].map { $0.name }.joined(separator: ", ")
+            caughtError = GenError("Unexpected end of \(name). Expected \(remaining) at \(n.from)")
+            return
+        }
+        posArr.removeLast()
+        stack.removeLast()
+        posArr[last - 1] += 1
+    })
+
+    if let error = caughtError { throw error }
+
+    if posArr[0] != specs.count {
+        let remaining = stack[0][posArr[0]...].map { $0.name }.joined(separator: ", ")
+        throw GenError("Unexpected end of tree. Expected \(remaining) at \(tree.length)")
+    }
 }
