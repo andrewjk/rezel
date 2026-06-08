@@ -87,7 +87,7 @@ struct DebugTests {
 		print("Input: \(input)")
 		print("Tree length: \(tree.length)")
 		print("Tree topNode: \(tree.topNode.name)")
-		var cursor = tree.cursor()
+		let cursor = tree.cursor()
 		cursor.iterate(enter: { n in
 			print("  ENTER \(n.name) from=\(n.from) to=\(n.to) type.id=\(n.type.id)")
 			return true
@@ -144,7 +144,7 @@ struct DebugTests {
 		print("Input: \(input)")
 		print("Tree length: \(tree.length)")
 		print("Tree topNode: \(tree.topNode.name)")
-		var cursor = tree.cursor()
+		let cursor = tree.cursor()
 		cursor.iterate(enter: { n in
 			print("  ENTER \(n.name) from=\(n.from) to=\(n.to) type.id=\(n.type.id)")
 			return true
@@ -188,7 +188,7 @@ struct DebugTests {
 		print("Input: \(input)")
 		print("Tree length: \(tree.length)")
 		print("Tree topNode: \(tree.topNode.name)")
-		var cursor = tree.cursor()
+		let cursor = tree.cursor()
 		cursor.iterate(enter: { n in
 			print("  ENTER \(n.name) from=\(n.from) to=\(n.to) type.id=\(n.type.id)")
 			return true
@@ -236,7 +236,7 @@ struct DebugTests {
 		print("Input: \(input)")
 		print("Tree length: \(tree.length)")
 		print("Tree topNode: \(tree.topNode.name)")
-		var cursor = tree.cursor()
+		let cursor = tree.cursor()
 		cursor.iterate(enter: { n in
 			print("  ENTER \(n.name) from=\(n.from) to=\(n.to) type.id=\(n.type.id)")
 			return true

@@ -153,8 +153,8 @@ private nonisolated(unsafe) let _ruleNodeProp = NodeProp<HighlightRule>(
 	combine: { a, b in
 		var cur: HighlightRule?
 		var root: HighlightRule!
-		var aOpt = a as? HighlightRule
-		var bOpt = b as? HighlightRule
+		var aOpt: HighlightRule? = a
+		var bOpt: HighlightRule? = b
 
 		while aOpt != nil || bOpt != nil {
 			let take: HighlightRule

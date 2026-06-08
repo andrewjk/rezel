@@ -20,7 +20,7 @@ public final class NodeSet {
 					let value = add.1
 					let prop = add.0
 					if let combine = prop.combine, let existing = newProps?[prop.id] {
-						newProps?[prop.id] = combine(existing as! Any, value)
+						newProps?[prop.id] = combine(existing, value)
 					} else {
 						newProps?[prop.id] = value
 					}

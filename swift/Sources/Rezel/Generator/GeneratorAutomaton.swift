@@ -953,7 +953,7 @@ func mergeIdentical(_ states: [AutState]) -> [AutState] {
 				let other = newStates[match]
 				var add: [Pos]? = nil
 				for pos in state.set {
-					if !other.set.contains(where: { $0.eqSimple(pos) }) { (add ?? []).map { _ in }.count; if add == nil { add = [] }; add!.append(pos) }
+					if !other.set.contains(where: { $0.eqSimple(pos) }) { if add == nil { add = [] }; add!.append(pos) }
 				}
 				if let add = add { other.set = add + other.set; other.set.sort { $0.cmp($1) < 0 } }
 			} else {

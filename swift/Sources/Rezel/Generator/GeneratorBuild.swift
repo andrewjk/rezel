@@ -1082,7 +1082,7 @@ class Builder {
 		externalTokens = ast.externalTokens.map { ExternalTokenSet(b: self, ast: $0) }
 		externalSpecializers = ast.externalSpecializers.map { ExternalSpecializer(b: self, ast: $0) }
 
-		try logTime("Build rules") {
+		logTime("Build rules") {
 			let noSkip = newName("%noskip", true)
 			currentSkip.append(noSkip)
 			defineRule(noSkip, [])
@@ -1214,7 +1214,7 @@ class Builder {
 		tokenPrec: Int,
 		termNames: [Int: String]
 	) {
-		let simplifiedRules = try logTime("Simplify rules") {
+		let simplifiedRules = logTime("Simplify rules") {
 			simplifyRules(rules, skipRules + terms.tops)
 		}
 		let (nodeTypes, names, minRepeatTerm, maxTerm) = try terms.finish(simplifiedRules)
@@ -1267,7 +1267,7 @@ class Builder {
 		for ext in externalTokens {
 			ext.checkConflicts(fullTable, skipInfoArr)
 		}
-		let table = try logTime("Finish automaton") { finishAutomaton(fullTable) }
+		let table = logTime("Finish automaton") { finishAutomaton(fullTable) }
 		let skipState = findSkipStates(table, terms.tops)
 
 		if verbose.contains("lr") {
@@ -1319,8 +1319,8 @@ class Builder {
 			return data.storeArray(actions)
 		}
 
-		let stateArray = try logTime("Finish states") { () -> [UInt32] in
-			var states = [UInt32](repeating: 0, count: table.count * ParseState.Size)
+		let stateArray = logTime("Finish states") { () -> [UInt32] in
+			let states = [UInt32](repeating: 0, count: table.count * ParseState.Size)
 			let forceReductions = computeForceReductions(table, skipInfoArr)
 			let finishCx = FinishStateContext(
 				tokenizers: allTokenizers,
@@ -1893,7 +1893,7 @@ class Builder {
 				raise("Unknown built-in prop name '@\(prop.name)'", prop.start)
 			}
 		}
-		if let expr = expr, ast.autoDelim, let name = name, hasProps(result) || name != nil {
+		if let expr = expr, ast.autoDelim, name != nil {
 			if let delim = findDelimiters(expr) {
 				addToProp(delim.0, "closedBy", delim.1.nodeName!)
 				addToProp(delim.1, "openedBy", delim.0.nodeName!)

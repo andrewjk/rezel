@@ -453,11 +453,11 @@ public class LrParse: PartialParse {
 					stack.useNode(cached!, next: match)
 					return true
 				}
-				if !(cached! is Tree) || (cached! as! Tree).children.isEmpty || (cached! as! Tree).positions[0] > 0 {
+				if cached!.children.isEmpty || cached!.positions[0] > 0 {
 					break
 				}
-				let inner = (cached! as! Tree).children[0]
-				if let innerTree = inner as? Tree, (cached! as! Tree).positions[0] == 0 {
+				let inner = cached!.children[0]
+				if let innerTree = inner as? Tree, cached!.positions[0] == 0 {
 					cached = innerTree
 				} else {
 					break
@@ -771,7 +771,7 @@ public class LRParser: Parser {
 			NodeType.define(spec: NodeType.DefineSpec(
 				id: index,
 				name: index >= minRepeat ? nil : name,
-				props: propArr[index].isEmpty ? nil : propArr[index] as? [Any],
+				props: propArr[index].isEmpty ? nil : propArr[index],
 				top: topTerms.contains(index),
 				error: index == 0,
 				skipped: spec.skippedNodes?.contains(index) ?? false
