@@ -488,7 +488,7 @@ private nonisolated(unsafe) let mixedHtmlParser: Parser = htmlParser.configure(
 			let openTag = node.node.parent?.firstChild
 			if let openTag = openTag {
 				if isJsType(extractTypeAttr(openTag, input)) {
-					return NestedParse(parser: simpleJsParser, bracketed: false)
+					return NestedParse(parser: jsParser, bracketed: false)
 				}
 			}
 			return nil
