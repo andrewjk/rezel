@@ -1,36 +1,35 @@
-import Testing
 @testable import Rezel
+import Testing
 
-@Suite("fileTests")
 struct FileTestsTests {
-    @Test("handle parser error")
-    func handleParserError() {
-        let content = """
-        
-# Working Spec
+	@Test("handle parser error")
+	func handleParserError() {
+		let content = """
+		        
+		# Working Spec
 
-b
+		b
 
-==> B
+		==> B
 
-# Broken Spec
+		# Broken Spec
 
-bbbb bbbb bbbb bbbb
-bbbb bbbb bbbb bbbb
-bbbb bbbb bbbb bbbb
-bbbb bbbb bbbb bbbb aaaa
-bbbb
+		bbbb bbbb bbbb bbbb
+		bbbb bbbb bbbb bbbb
+		bbbb bbbb bbbb bbbb
+		bbbb bbbb bbbb bbbb aaaa
+		bbbb
 
-"""
-        let expectedError = "Unexpected file format in test-error.txt around\n\n  | # Broken Spec\n  | \n  | bbbb bbbb bbbb bbbb\n  | bbbb bbbb bbbb bbbb\n  | bbbb bbbb bbbb bbbb\n  | bbbb bbbb bbbb bbbb aaaa"
+		"""
+		let expectedError = "Unexpected file format in test-error.txt around\n\n  | # Broken Spec\n  | \n  | bbbb bbbb bbbb bbbb\n  | bbbb bbbb bbbb bbbb\n  | bbbb bbbb bbbb bbbb\n  | bbbb bbbb bbbb bbbb aaaa"
 
-        let file = "test-error.txt"
+		let file = "test-error.txt"
 
-        do {
-            let _ = try fileTests(content, file)
-            Issue.record("Expected error to be thrown")
-        } catch {
-            #expect(error.localizedDescription == expectedError || "\(error)" == expectedError)
-        }
-    }
+		do {
+			_ = try fileTests(content, file)
+			Issue.record("Expected error to be thrown")
+		} catch {
+			#expect(error.localizedDescription == expectedError || expectedError == "\(error)")
+		}
+	}
 }

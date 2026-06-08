@@ -1,6 +1,6 @@
-import Testing
 import Foundation
 @testable import Rezel
+import Testing
 
 private let literalsTests = """
 
@@ -232,40 +232,40 @@ JsonText(Array(
   Array(String,String)))
 """
 
-@Suite("JSON Grammar", .serialized)
+@Suite(.serialized)
 struct JsonGrammarTests {
-    @Test func literals() throws {
-        let tests = try fileTests(literalsTests, "literals.txt")
-        for t in tests {
-            try t.run(jsonParser)
-        }
-    }
+	@Test func literals() throws {
+		let tests = try fileTests(literalsTests, "literals.txt")
+		for t in tests {
+			try t.run(jsonParser)
+		}
+	}
 
-    @Test func strings() throws {
-        let tests = try fileTests(stringsTests, "strings.txt")
-        for t in tests {
-            try t.run(jsonParser)
-        }
-    }
+	@Test func strings() throws {
+		let tests = try fileTests(stringsTests, "strings.txt")
+		for t in tests {
+			try t.run(jsonParser)
+		}
+	}
 
-    @Test func numbers() throws {
-        let tests = try fileTests(numbersTests, "numbers.txt")
-        for t in tests {
-            try t.run(jsonParser)
-        }
-    }
+	@Test func numbers() throws {
+		let tests = try fileTests(numbersTests, "numbers.txt")
+		for t in tests {
+			try t.run(jsonParser)
+		}
+	}
 
-    @Test func objects() throws {
-        let tests = try fileTests(objectsTests, "objects.txt")
-        for t in tests {
-            try t.run(jsonParser)
-        }
-    }
+	@Test func objects() throws {
+		let tests = try fileTests(objectsTests, "objects.txt")
+		for t in tests {
+			try t.run(jsonParser)
+		}
+	}
 
-    @Test func arrays() throws {
-        let tests = try fileTests(arraysTests, "arrays.txt")
-        for t in tests {
-            try t.run(jsonParser)
-        }
-    }
+	@Test func arrays() throws {
+		let tests = try fileTests(arraysTests, "arrays.txt")
+		for t in tests {
+			try t.run(jsonParser)
+		}
+	}
 }

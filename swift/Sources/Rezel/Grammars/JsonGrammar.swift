@@ -41,23 +41,23 @@ list<item> { item ("," item)* }
 @detectDelim
 """#
 
-nonisolated(unsafe) private let jsonHighlighting = styleTags([
-    "String": hlString,
-    "Number": hlNumber,
-    "True False": (hlTags["bool"] as! Tag),
-    "PropertyName": hlPropertyName,
-    "Null": (hlTags["null"] as! Tag),
-    ", :": (hlTags["separator"] as! Tag),
-    "[ ]": (hlTags["squareBracket"] as! Tag),
-    "{ }": (hlTags["brace"] as! Tag),
+private nonisolated(unsafe) let jsonHighlighting = styleTags([
+	"String": hlString,
+	"Number": hlNumber,
+	"True False": (hlTags["bool"] as! Tag),
+	"PropertyName": hlPropertyName,
+	"Null": (hlTags["null"] as! Tag),
+	", :": (hlTags["separator"] as! Tag),
+	"[ ]": (hlTags["squareBracket"] as! Tag),
+	"{ }": (hlTags["brace"] as! Tag),
 ])
 
-nonisolated(unsafe) public let jsonParser: LRParser = {
-    do {
-        return try buildParser(jsonGrammarText, options: BuildOptions(
-            externalPropSource: { _ in jsonHighlighting }
-        ))
-    } catch {
-        fatalError("Failed to build JSON parser: \(error)")
-    }
+public nonisolated(unsafe) let jsonParser: LRParser = {
+	do {
+		return try buildParser(jsonGrammarText, options: BuildOptions(
+			externalPropSource: { _ in jsonHighlighting }
+		))
+	} catch {
+		fatalError("Failed to build JSON parser: \(error)")
+	}
 }()

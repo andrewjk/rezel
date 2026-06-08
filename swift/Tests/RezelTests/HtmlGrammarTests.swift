@@ -1,6 +1,6 @@
-import Testing
 import Foundation
 @testable import Rezel
+import Testing
 
 private let tagsTests = #"""
 
@@ -438,19 +438,19 @@ Document(
 
 """#
 
-@Suite("HTML Grammar", .serialized)
+@Suite(.serialized)
 struct HtmlGrammarTests {
-    @Test func tags() throws {
-        let tests = try fileTests(tagsTests, "tags.txt")
-        for t in tests {
-            try t.run(htmlParser)
-        }
-    }
+	@Test func tags() throws {
+		let tests = try fileTests(tagsTests, "tags.txt")
+		for t in tests {
+			try t.run(htmlParser)
+		}
+	}
 
-    @Test func vue() throws {
-        let tests = try fileTests(vueTests, "vue.txt")
-        for t in tests {
-            try t.run(htmlParser)
-        }
-    }
+	@Test func vue() throws {
+		let tests = try fileTests(vueTests, "vue.txt")
+		for t in tests {
+			try t.run(htmlParser)
+		}
+	}
 }
