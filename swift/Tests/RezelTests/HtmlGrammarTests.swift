@@ -438,6 +438,167 @@ Document(
 
 """#
 
+private func isJsType(_ type: String?) -> Bool {
+	guard let type = type else { return true }
+	let lower = type.lowercased()
+	if lower == "module" { return true }
+	if lower.hasPrefix("text/") || lower.hasPrefix("application/") {
+		let rest = String(lower[lower.index(lower.startIndex, offsetBy: lower.hasPrefix("text/") ? 5 : 12)...])
+		if rest.hasPrefix("x-") {
+			let after = String(rest[rest.index(rest.startIndex, offsetBy: 2)...])
+			if after == "javascript" || after == "ecmascript" { return true }
+		} else if rest == "javascript" || rest == "ecmascript" {
+			return true
+		}
+	}
+	return false
+}
+
+private func extractTypeAttr(_ openTag: SyntaxNode, _ input: InputProtocol) -> String? {
+	var child = openTag.firstChild
+	while let c = child {
+		if c.name == "Attribute" {
+			let nameNode = c.firstChild
+			if let nameNode = nameNode, input.read(from: nameNode.from, to: nameNode.to) == "type" {
+				let valNode = nameNode.nextSibling?.nextSibling
+				if let valNode = valNode {
+					return input.read(from: valNode.from, to: valNode.to)
+				}
+				return nil
+			}
+		}
+		child = c.nextSibling
+	}
+	return nil
+}
+
+private func wrapMixed(_ mixed: @escaping (AnyPartialParse, InputProtocol, [TreeFragment], [CommonRange]) -> AnyPartialParse) -> ParseWrapper {
+	return { parse, input, fragments, ranges in
+		mixed(parse, input, fragments, ranges)
+	}
+}
+
+private nonisolated(unsafe) let mixedHtmlParser: Parser = htmlParser.configure(
+	wrap: wrapMixed(parseMixed { node, input in
+		if node.name == "ScriptText" {
+			let openTag = node.node.parent?.firstChild
+			if let openTag = openTag {
+				if isJsType(extractTypeAttr(openTag, input)) {
+					return NestedParse(parser: jsParser, bracketed: false)
+				}
+			}
+			return nil
+		}
+		return nil
+	})
+)
+
+private let mixedTests = #"""
+
+# Doesn't parse VB as JS
+
+<script type="text/visualbasic">let something = 20</script>
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,Attribute(AttributeName,Is,AttributeValue),EndTag),
+  ScriptText,
+  CloseTag(StartCloseTag,TagName,EndTag)))
+
+# Does parse type-less script tags as JS
+
+<script>/foo/</script>
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,EndTag),
+  Script(ExpressionStatement(RegExp)),
+  CloseTag(StartCloseTag,TagName,EndTag)))
+
+# Still doesn't end script tags on closing tags
+
+<script type=something></foo></script>
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,Attribute(AttributeName,Is,UnquotedAttributeValue),EndTag),
+  ScriptText,
+  CloseTag(StartCloseTag,TagName,EndTag)))
+
+# Missing end tag
+
+<html><script>null
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,EndTag),
+  Element(OpenTag(StartTag,TagName,EndTag),
+    Script(ExpressionStatement(null)))))
+
+# JS with script type
+
+<script type="text/javascript">console.log(2)</script>
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,Attribute(AttributeName,Is,AttributeValue),EndTag),
+  Script(...),
+  CloseTag(StartCloseTag,TagName,EndTag)))
+
+# JS with unquoted script type
+
+<script type=module>console.log(2)</script>
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,Attribute(AttributeName,Is,UnquotedAttributeValue),EndTag),
+  Script(...),
+  CloseTag(StartCloseTag,TagName,EndTag)))
+
+# Error in JS
+
+<script>a b</script>
+
+==>
+
+Document(Element(OpenTag(StartTag,TagName,EndTag),
+  Script(...),
+  CloseTag(StartCloseTag,TagName,EndTag)))
+
+"""#
+
+private func checkIncremental(_ doc: String, action: (String, Int, String?), prev: Tree? = nil) throws {
+	let parser = htmlParser.configure(bufferLength: 2)
+	let prevAST = prev ?? parser.parse(input: doc)
+
+	var newDoc: String
+	let change: ChangedRange
+
+	let (tp, pos, txt) = action
+	if tp == "insert" {
+		let idx = doc.index(doc.startIndex, offsetBy: pos)
+		newDoc = String(doc[..<idx]) + txt! + String(doc[idx...])
+		change = ChangedRange(fromA: pos, toA: pos, fromB: pos, toB: pos + txt!.count)
+	} else if tp == "del" {
+		let idx = doc.index(doc.startIndex, offsetBy: pos)
+		newDoc = String(doc[..<idx]) + String(doc[doc.index(after: idx)...])
+		change = ChangedRange(fromA: pos, toA: pos + 1, fromB: pos, toB: pos)
+	} else {
+		let idx = doc.index(doc.startIndex, offsetBy: pos)
+		newDoc = String(doc[..<idx]) + txt! + String(doc[doc.index(after: idx)...])
+		change = ChangedRange(fromA: pos, toA: pos + 1, fromB: pos, toB: pos + txt!.count)
+	}
+
+	let fragments = TreeFragment.applyChanges(TreeFragment.addTree(prevAST), changes: [change], minGap: 2)
+	let ast = parser.parse(input: newDoc, fragments: fragments)
+	let orig = parser.parse(input: newDoc)
+	if ast.description != orig.description {
+		throw NSError(domain: "incremental", code: 1, userInfo: [
+			NSLocalizedDescriptionKey: "Mismatch:\n  \(ast)\nvs\n  \(orig)\ndocument: \(doc)",
+		])
+	}
+}
+
 @Suite(.serialized)
 struct HtmlGrammarTests {
 	@Test func tags() throws {
@@ -452,5 +613,33 @@ struct HtmlGrammarTests {
 		for t in tests {
 			try t.run(htmlParser)
 		}
+	}
+
+	@Test func mixed() throws {
+		let tests = try fileTests(mixedTests, "mixed.txt")
+		for t in tests {
+			try t.run(mixedHtmlParser)
+		}
+	}
+
+	@Test("doesn't get confused by reused opening tags")
+	func incrementalReusedTags() throws {
+		try checkIncremental("<code><code>mgnbni</code></code>", action: ("del", 29, nil))
+	}
+
+	@Test("can handle a renamed opening tag after a self-closing")
+	func incrementalRenamedTag() throws {
+		try checkIncremental("<p>one two three four five six seven<p>eight", action: ("replace", 37, "a"))
+	}
+
+	@Test("is okay with nameless elements")
+	func incrementalNameless() throws {
+		try checkIncremental("<body><code><img></code><>body>", action: ("replace", 14, ">"))
+		try checkIncremental("abcde<>fghij<", action: ("replace", 12, ">"))
+	}
+
+	@Test("doesn't get confused by an invalid close tag receiving a matching open tag")
+	func incrementalInvalidCloseTag() throws {
+		try checkIncremental("<div><p>foo</body>", action: ("insert", 0, "<body>"))
 	}
 }
