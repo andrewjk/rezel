@@ -305,14 +305,14 @@ private func parseBracedExpr(_ input: GenInput) -> Expression {
 private func parseExprInner(_ input: GenInput) -> Expression {
 	let exprStart = input.start
 	if input.eat("(") {
-		if input.eat(")") { return SequenceExpression(start: exprStart, exprs: [], markers: [[], []], empty: true) }
+		if input.eat(")") { return SequenceExpression(start: exprStart, exprs: [], markers: [[], []], empty: false) }
 		let expr = parseExprChoice(input)
 		input.expect(")")
 		return expr
 	} else if input.type == "string" {
 		let val = input.value as! String
 		input.next()
-		if val.isEmpty { return SequenceExpression(start: exprStart, exprs: [], markers: [[], []], empty: true) }
+		if val.isEmpty { return SequenceExpression(start: exprStart, exprs: [], markers: [[], []], empty: false) }
 		return LiteralExpression(start: exprStart, value: val)
 	} else if input.eat("id", "_") {
 		return AnyExpression(start: exprStart)
