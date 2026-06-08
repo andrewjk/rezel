@@ -1,4 +1,4 @@
-public class TreeCursor: SyntaxNodeRef {
+public final class TreeCursor: SyntaxNodeRef {
 	public var type: NodeType
 	public var from: Int
 	public var to: Int
@@ -39,6 +39,7 @@ public class TreeCursor: SyntaxNodeRef {
 		}
 	}
 
+	@inline(__always)
 	func yieldNode(_ node: TreeNode?) -> Bool {
 		guard let node = node else { return false }
 		_tree = node
@@ -48,6 +49,7 @@ public class TreeCursor: SyntaxNodeRef {
 		return true
 	}
 
+	@inline(__always)
 	func yieldBuf(_ index: Int, typeOverride: NodeType? = nil) -> Bool {
 		self.index = index
 		guard let buf = buffer else { return false }
@@ -57,6 +59,7 @@ public class TreeCursor: SyntaxNodeRef {
 		return true
 	}
 
+	@inline(__always)
 	public func yield(_ node: SyntaxNode?) -> Bool {
 		guard let node = node else { return false }
 		if let treeNode = node as? TreeNode {
@@ -127,6 +130,7 @@ public class TreeCursor: SyntaxNodeRef {
 		return true
 	}
 
+	@inline(__always)
 	func enterChild(_ dir: Int, pos: Int, side: Side) -> Bool {
 		if buffer == nil {
 			let children = _tree._tree.children
@@ -185,6 +189,7 @@ public class TreeCursor: SyntaxNodeRef {
 		return yieldNode(p)
 	}
 
+	@inline(__always)
 	func sibling(_ dir: Int) -> Bool {
 		if buffer == nil {
 			guard _tree._parent != nil else { return false }
@@ -258,6 +263,7 @@ public class TreeCursor: SyntaxNodeRef {
 		return true
 	}
 
+	@inline(__always)
 	func move(_ dir: Int, enter: Bool) -> Bool {
 		if enter && enterChild(dir, pos: 0, side: .dontCare) { return true }
 		while true {
@@ -266,6 +272,7 @@ public class TreeCursor: SyntaxNodeRef {
 		}
 	}
 
+	@inline(__always)
 	public func next(_ enter: Bool = true) -> Bool {
 		move(1, enter: enter)
 	}

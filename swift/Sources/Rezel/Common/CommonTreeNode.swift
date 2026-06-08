@@ -1,4 +1,4 @@
-public class TreeNode: SyntaxNode {
+public final class TreeNode: SyntaxNode {
 	let _tree: Tree
 	public let from: Int
 	public let index: Int
@@ -31,6 +31,7 @@ public class TreeNode: SyntaxNode {
 		self
 	}
 
+	@inline(__always)
 	func nextChild(
 		_ i: Int, dir: Int, pos: Int, side: Side, mode: IterMode = []
 	) -> SyntaxNode? {
@@ -129,6 +130,7 @@ public class TreeNode: SyntaxNode {
 		return nextChild(0, dir: 1, pos: pos, side: Side(rawValue: side) ?? .around, mode: mode)
 	}
 
+	@inline(__always)
 	func nextSignificantParent() -> TreeNode {
 		var val: TreeNode = self
 		while val.type.isAnonymous, let p = val._parent {

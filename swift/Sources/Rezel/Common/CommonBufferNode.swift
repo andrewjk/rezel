@@ -1,4 +1,4 @@
-public class BufferNode: SyntaxNode {
+public final class BufferNode: SyntaxNode {
 	public let type: NodeType
 	public var name: String {
 		type.name

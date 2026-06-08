@@ -1,4 +1,4 @@
-public class BufferContext {
+public final class BufferContext {
 	public let parent: TreeNode
 	public let buffer: TreeBuffer
 	public let index: Int
