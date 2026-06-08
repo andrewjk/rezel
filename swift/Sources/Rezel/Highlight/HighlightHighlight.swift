@@ -7,6 +7,14 @@ public class Tag: CustomStringConvertible {
 	public let base: Tag?
 	public let modified: [Modifier]
 
+	public init(id: Int, name: String, set: [Tag], base: Tag?, modified: [Modifier]) {
+		self.id = id
+		self.name = name
+		self.set = set
+		self.base = base
+		self.modified = modified
+	}
+
 	public init(name: String, set: [Tag], base: Tag?, modified: [Modifier]) {
 		id = _nextTagID
 		_nextTagID += 1
@@ -29,15 +37,16 @@ public class Tag: CustomStringConvertible {
 		if let parent = parent, parent.base != nil {
 			fatalError("Can not derive from a modified tag")
 		}
-		var tagSet: [Tag] = []
-		let tag = Tag(name: n, set: [], base: nil, modified: [])
-		tagSet.append(tag)
+		let id = _nextTagID
+		_nextTagID += 1
+		var parentSet: [Tag] = []
 		if let parent = parent {
-			for t in parent.set {
-				tagSet.append(t)
-			}
+			parentSet = parent.set
 		}
-		return Tag(name: n, set: tagSet, base: nil, modified: [])
+		let tag = Tag(id: id, name: n, set: parentSet, base: nil, modified: [])
+		var fullSet = [tag]
+		fullSet.append(contentsOf: parentSet)
+		return Tag(id: id, name: n, set: fullSet, base: nil, modified: [])
 	}
 
 	public static func defineModifier(_ name: String = "") -> (Tag) -> Tag {
