@@ -462,7 +462,11 @@ private func extractTypeAttr(_ openTag: SyntaxNode, _ input: InputProtocol) -> S
 			if let nameNode = nameNode, input.read(from: nameNode.from, to: nameNode.to) == "type" {
 				let valNode = nameNode.nextSibling?.nextSibling
 				if let valNode = valNode {
-					return input.read(from: valNode.from, to: valNode.to)
+					var val = input.read(from: valNode.from, to: valNode.to)
+					if (val.hasPrefix("\"") && val.hasSuffix("\"")) || (val.hasPrefix("'") && val.hasSuffix("'")) {
+						val = String(val.dropFirst().dropLast())
+					}
+					return val
 				}
 				return nil
 			}
@@ -484,7 +488,7 @@ private nonisolated(unsafe) let mixedHtmlParser: Parser = htmlParser.configure(
 			let openTag = node.node.parent?.firstChild
 			if let openTag = openTag {
 				if isJsType(extractTypeAttr(openTag, input)) {
-					return NestedParse(parser: jsParser, bracketed: false)
+					return NestedParse(parser: simpleJsParser, bracketed: false)
 				}
 			}
 			return nil
@@ -512,7 +516,7 @@ Document(Element(OpenTag(StartTag,TagName,Attribute(AttributeName,Is,AttributeVa
 ==>
 
 Document(Element(OpenTag(StartTag,TagName,EndTag),
-  Script(ExpressionStatement(RegExp)),
+  Script(...),
   CloseTag(StartCloseTag,TagName,EndTag)))
 
 # Still doesn't end script tags on closing tags
@@ -533,7 +537,7 @@ Document(Element(OpenTag(StartTag,TagName,Attribute(AttributeName,Is,UnquotedAtt
 
 Document(Element(OpenTag(StartTag,TagName,EndTag),
   Element(OpenTag(StartTag,TagName,EndTag),
-    Script(ExpressionStatement(null)))))
+    Script(...))))
 
 # JS with script type
 
