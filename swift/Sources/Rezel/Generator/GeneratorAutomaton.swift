@@ -40,11 +40,15 @@ public class Pos: CustomStringConvertible {
 	}
 
 	public func cmp(_ pos: Pos) -> Int {
-		return chain(rule.cmp(pos.rule),
-		             self.pos - pos.pos,
-		             skipAhead.hash - pos.skipAhead.hash,
-		             cmpSet(ahead, pos.ahead) { a, b in a.cmp(b) },
-		             cmpSet(ambigAhead, pos.ambigAhead, cmpStr))
+		let r = rule.cmp(pos.rule)
+		if r != 0 { return r }
+		let p = self.pos - pos.pos
+		if p != 0 { return p }
+		let s = skipAhead.hash - pos.skipAhead.hash
+		if s != 0 { return s }
+		let c = cmpSet(ahead, pos.ahead) { a, b in a.cmp(b) }
+		if c != 0 { return c }
+		return cmpSet(ambigAhead, pos.ambigAhead, cmpStr)
 	}
 
 	public func eqSimple(_ pos: Pos) -> Bool {
@@ -446,24 +450,34 @@ func eqSetGoto(_ a: [Shift], _ b: [Shift]) -> Bool {
 
 func automatonClosure(_ set: [Pos], _ first: [String: [Term?]]) throws -> [Pos] {
 	var added: [Pos] = []
+	var addedByRule: [ObjectIdentifier: Pos] = [:]
 	var redo: [Pos] = []
+	var setByRule: [ObjectIdentifier: Pos] = [:]
+	for pos in set {
+		if pos.pos == 0, setByRule[ObjectIdentifier(pos.rule)] == nil {
+			setByRule[ObjectIdentifier(pos.rule)] = pos
+		}
+	}
 
 	func addFor(_ name: Term, _ ahead: [Term], _ ambigAhead: [String], _ skipAhead: Term, _ via: Pos) throws {
 		for rule in name.rules {
-			var add = added.first { $0.rule === rule }
+			let key = ObjectIdentifier(rule)
+			var add = addedByRule[key]
 			if add == nil {
-				let existing = set.first { $0.pos == 0 && $0.rule === rule }
-				if let existing = existing {
+				if let existing = setByRule[key] {
 					add = Pos(rule: existing.rule, pos: 0, ahead: existing.ahead, ambigAhead: existing.ambigAhead, skipAhead: existing.skipAhead, via: existing.via)
 				} else {
 					add = Pos(rule: rule, pos: 0, ahead: [], ambigAhead: [], skipAhead: skipAhead, via: via)
 				}
 				added.append(add!)
+				addedByRule[key] = add!
 			}
 			if add!.skipAhead !== skipAhead {
 				throw GenError("Inconsistent skip sets after " + via.trail())
 			}
-			add!.ambigAhead = union(add!.ambigAhead, ambigAhead)
+			if !ambigAhead.isEmpty || !add!.ambigAhead.isEmpty {
+				add!.ambigAhead = union(add!.ambigAhead, ambigAhead)
+			}
 			for term in ahead {
 				if !add!.ahead.contains(where: { $0 === term }) {
 					add!.ahead.append(term)
@@ -492,10 +506,14 @@ func automatonClosure(_ set: [Pos], _ first: [String: [Term?]]) throws -> [Pos] 
 	}
 
 	var result = set
+	var resultByRule: [ObjectIdentifier: Int] = [:]
+	for i in 0 ..< result.count {
+		if result[i].pos == 0 { resultByRule[ObjectIdentifier(result[i].rule)] = i }
+	}
 	for add in added {
 		add.ahead.sort { $0.hash < $1.hash }
 		add.finish()
-		if let origIndex = result.firstIndex(where: { $0.pos == 0 && $0.rule === add.rule }) {
+		if let origIndex = resultByRule[ObjectIdentifier(add.rule)] {
 			result[origIndex] = add
 		} else {
 			result.append(add)
@@ -702,15 +720,17 @@ public func buildFullAutomaton(_ terms: TermSet, _ startTerms: [Term], _ first: 
 		let state = states[filled]; filled += 1
 		var byTerm: [Term] = []
 		var byTermPos: [[Pos]] = []
+		var byTermIndex: [ObjectIdentifier: Int] = [:]
 		var atEnd: [Pos] = []
 		for pos in state.set {
 			if pos.pos == pos.rule.parts.count {
 				if !pos.rule.name.top { atEnd.append(pos) }
 			} else {
 				let next = pos.rule.parts[pos.pos]
-				if let index = byTerm.firstIndex(where: { $0 === next }) {
+				if let index = byTermIndex[ObjectIdentifier(next)] {
 					byTermPos[index].append(pos)
 				} else {
+					byTermIndex[ObjectIdentifier(next)] = byTerm.count
 					byTerm.append(next)
 					byTermPos.append([pos])
 				}

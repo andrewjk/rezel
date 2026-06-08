@@ -257,10 +257,13 @@ public class Rule: CustomStringConvertible {
 	}
 
 	public func cmpNoName(_ rule: Rule) -> Int {
-		return chain(parts.count - rule.parts.count,
-		             skip.hash - rule.skip.hash,
-		             parts.enumerated().reduce(0) { r, p in r != 0 ? r : p.element.cmp(rule.parts[p.offset]) },
-		             cmpSet(conflicts, rule.conflicts) { a, b in a.cmp(b) })
+		let sizeCmp = parts.count - rule.parts.count
+		if sizeCmp != 0 { return sizeCmp }
+		let skipCmp = skip.hash - rule.skip.hash
+		if skipCmp != 0 { return skipCmp }
+		let partsCmp = parts.enumerated().reduce(0) { r, p in r != 0 ? r : p.element.cmp(rule.parts[p.offset]) }
+		if partsCmp != 0 { return partsCmp }
+		return cmpSet(conflicts, rule.conflicts) { a, b in a.cmp(b) }
 	}
 
 	public var description: String {
