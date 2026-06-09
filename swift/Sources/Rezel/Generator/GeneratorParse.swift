@@ -322,15 +322,16 @@ private func parseExprInner(_ input: GenInput) -> Expression {
 		let invert = str[str.index(str.startIndex, offsetBy: input.start)] == "!"
 		let unescaped = readString(content)
 		var ranges: [(Int, Int)] = []
-		var i = unescaped.startIndex
-		while i < unescaped.endIndex {
-			let code = Int(unescaped[i].unicodeScalars.first!.value)
-			i = unescaped.index(after: i)
-			if i < unescaped.endIndex && unescaped[i] == "-" {
-				let nextIdx = unescaped.index(after: i)
-				if nextIdx < unescaped.endIndex {
-					let endCode = Int(unescaped[nextIdx].unicodeScalars.first!.value)
-					i = unescaped.index(after: nextIdx)
+		let scalars = unescaped.unicodeScalars
+		var i = scalars.startIndex
+		while i < scalars.endIndex {
+			let code = Int(scalars[i].value)
+			i = scalars.index(after: i)
+			if i < scalars.endIndex && scalars[i] == "-" {
+				let nextIdx = scalars.index(after: i)
+				if nextIdx < scalars.endIndex {
+					let endCode = Int(scalars[nextIdx].value)
+					i = scalars.index(after: nextIdx)
 					if endCode < code { input.raise("Invalid character range", input.start) }
 					addRange(input, &ranges, code, endCode + 1)
 					continue
