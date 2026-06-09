@@ -177,9 +177,9 @@ class BuildTokenGroup: TokenizerSpecProtocol {
 
 class LocalTokenGroupSpec: TokenizerSpecProtocol {
 	let groupID: Int?
-	private let fullData: [UInt16]
-	private let precOffset: Int
-	private let elseToken: Int?
+	let fullData: [UInt16]
+	let precOffset: Int
+	let elseToken: Int?
 
 	init(groupID: Int, fullData: [UInt16], precOffset: Int, elseToken: Int?) {
 		self.groupID = groupID
@@ -1480,13 +1480,13 @@ class Builder {
 				if known.source.from == nil, known.source.name == "repeated" || known.source.name == "error" {
 					continue
 				}
-				var rec = nodeProps.first(where: { $0.prop == prop })
-				if rec == nil {
+				var recIdx = nodeProps.firstIndex(where: { $0.prop == prop })
+				if recIdx == nil {
 					nodeProps.append((prop: prop, values: [:]))
-					rec = nodeProps[nodeProps.count - 1]
+					recIdx = nodeProps.count - 1
 				}
-				if rec!.values[value] == nil { rec!.values[value] = [] }
-				rec!.values[value]!.append(type.id)
+				if nodeProps[recIdx!].values[value] == nil { nodeProps[recIdx!].values[value] = [] }
+				nodeProps[recIdx!].values[value]!.append(type.id)
 			}
 		}
 		let result = nodeProps.map { prop, values -> (prop: String, terms: [Any]) in
@@ -2469,6 +2469,97 @@ func isExported(_ rule: RuleDeclaration) -> Bool {
 public func buildParser(_ text: String, options: BuildOptions = BuildOptions()) throws -> LRParser {
 	let builder = try Builder(text: text, options: options)
 	return try builder.getParser()
+}
+
+public struct SerializedParser {
+	public let states: String
+	public let stateData: String
+	public let goto: String
+	public let nodeNames: String
+	public let maxTerm: Int
+	public let repeatNodeCount: Int
+	public let nodePropNames: [String]?
+	public let nodePropData: [[Any]]?
+	public let skippedNodes: [Int]?
+	public let tokenData: String
+	public let tokenizerEntries: [TokenizerEntry]
+	public let topRules: [String: [Int]]
+	public let dialects: [String: Int]?
+	public let dynamicPrecedences: [Int: Int]?
+	public let specializedEntries: [SpecializedEntry]
+	public let tokenPrec: Int
+	public let termNames: [Int: String]?
+
+	public enum TokenizerEntry {
+		case tokenGroup(Int)
+		case localTokenGroup(data: String, precTable: Int, elseToken: Int?)
+		case external(name: String)
+	}
+
+	public enum SpecializedEntry {
+		case table(term: Int, table: [String: Int])
+		case external(term: Int, name: String)
+	}
+}
+
+public func buildSerializedParser(_ text: String, options: BuildOptions = BuildOptions()) throws -> SerializedParser {
+	let builder = try Builder(text: text, options: options)
+	let result = try builder.prepareParser()
+
+	var nodePropNames: [String]? = nil
+	var nodePropData: [[Any]]? = nil
+	if !result.nodeProps.isEmpty {
+		nodePropNames = []
+		nodePropData = []
+		for (propName, terms) in result.nodeProps {
+			nodePropNames!.append(propName)
+			nodePropData!.append(terms)
+		}
+	}
+
+	var tokenizerEntries: [SerializedParser.TokenizerEntry] = []
+	for tok in result.tokenizers {
+		if let btg = tok as? BuildTokenGroup {
+			tokenizerEntries.append(.tokenGroup(btg.groupID ?? 0))
+		} else if let ltg = tok as? LocalTokenGroupSpec {
+			tokenizerEntries.append(.localTokenGroup(
+				data: String(encodeArray(ltg.fullData.map { Int($0) }).dropFirst().dropLast()),
+				precTable: ltg.precOffset,
+				elseToken: ltg.elseToken
+			))
+		} else if let ext = tok as? ExternalTokenSet {
+			tokenizerEntries.append(.external(name: ext.ast.id.name))
+		}
+	}
+
+	var specializedEntries: [SerializedParser.SpecializedEntry] = []
+	for v in result.specialized {
+		if let ext = v as? ExternalSpecializer {
+			specializedEntries.append(.external(term: ext.term!.id, name: ext.ast.id.name))
+		} else if let entry = v as? SpecializeTableEntry {
+			specializedEntries.append(.table(term: entry.token.id, table: entry.table))
+		}
+	}
+
+	return SerializedParser(
+		states: String(encodeArray(result.states.map { Int($0) }, max: 0xFFFF_FFFF).dropFirst().dropLast()),
+		stateData: String(encodeArray(result.stateData.map { Int($0) }).dropFirst().dropLast()),
+		goto: String(encodeArray(result.goto.map { Int($0) }).dropFirst().dropLast()),
+		nodeNames: result.nodeNames,
+		maxTerm: result.maxTerm,
+		repeatNodeCount: result.repeatNodeCount,
+		nodePropNames: nodePropNames,
+		nodePropData: nodePropData,
+		skippedNodes: result.skippedTypes.isEmpty ? nil : result.skippedTypes,
+		tokenData: String(encodeArray(result.tokenData.map { Int($0) }).dropFirst().dropLast()),
+		tokenizerEntries: tokenizerEntries,
+		topRules: result.topRules,
+		dialects: result.dialects.isEmpty ? nil : result.dialects,
+		dynamicPrecedences: result.dynamicPrecedences,
+		specializedEntries: specializedEntries,
+		tokenPrec: result.tokenPrec,
+		termNames: result.termNames
+	)
 }
 
 // MARK: - Regex helper for dynamicPrecedence validation

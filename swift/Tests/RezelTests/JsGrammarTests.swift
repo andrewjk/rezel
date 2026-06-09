@@ -45,6 +45,4 @@ struct JsGrammarTests {
 	@Test func typescript() throws {
 		try runJsTests("typescript.txt")
 	}
-
-
 }

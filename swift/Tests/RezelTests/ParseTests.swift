@@ -615,7 +615,7 @@ struct MixedLanguagesTests {
 			])
 		)
 		#expect(ast1.description == ast2.description)
-        // TODO: This should be > 90
+		// TODO: This should be > 90
 		#expect(shared(ast1, ast2) > 70)
 	}
 

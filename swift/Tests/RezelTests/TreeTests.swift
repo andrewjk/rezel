@@ -327,13 +327,13 @@ struct TreeCursorTests {
 		}
 		let elapsed = Date().timeIntervalSince(t0) * 1000
 		let perMS = Double(count) / max(elapsed, 1)
-#if DEBUG
-		#expect(perMS > 1000, "Performance too low: \(perMS) per ms")
-#else
-        // TODO: This should be 10000
-        #expect(perMS > 5000, "Performance too low: \(perMS) per ms")
-#endif
-    }
+		#if DEBUG
+			#expect(perMS > 1000, "Performance too low: \(perMS) per ms")
+		#else
+			// TODO: This should be 10000
+			#expect(perMS > 5000, "Performance too low: \(perMS) per ms")
+		#endif
+	}
 
 	@Test("can produce nodes")
 	func produceNodes() {

@@ -712,6 +712,48 @@ public class LRParser: Parser {
 		public let specialized: [SpecializerSpec]?
 		public let tokenPrec: Int
 		public let termNames: [Int: String]?
+
+		public init(
+			version: Int,
+			states: Any,
+			stateData: Any,
+			goto: Any,
+			nodeNames: String,
+			maxTerm: Int,
+			repeatNodeCount: Int,
+			nodeProps: [[Any]]? = nil,
+			propSources: [NodePropSource]? = nil,
+			skippedNodes: [Int]? = nil,
+			tokenData: Any,
+			tokenizers: [Any],
+			topRules: [String: [Int]],
+			context: ContextTracker? = nil,
+			dialects: [String: Int]? = nil,
+			dynamicPrecedences: [Int: Int]? = nil,
+			specialized: [SpecializerSpec]? = nil,
+			tokenPrec: Int,
+			termNames: [Int: String]? = nil
+		) {
+			self.version = version
+			self.states = states
+			self.stateData = stateData
+			self.goto = goto
+			self.nodeNames = nodeNames
+			self.maxTerm = maxTerm
+			self.repeatNodeCount = repeatNodeCount
+			self.nodeProps = nodeProps
+			self.propSources = propSources
+			self.skippedNodes = skippedNodes
+			self.tokenData = tokenData
+			self.tokenizers = tokenizers
+			self.topRules = topRules
+			self.context = context
+			self.dialects = dialects
+			self.dynamicPrecedences = dynamicPrecedences
+			self.specialized = specialized
+			self.tokenPrec = tokenPrec
+			self.termNames = termNames
+		}
 	}
 
 	public init(spec: ParserSpec) {
@@ -750,7 +792,7 @@ public class LRParser: Parser {
 						i += 1
 						setProp(next, prop, value)
 					} else {
-						let value = propSpec[i + (-next - 1)] as! String
+						let value = propSpec[i + -next] as! String
 						for _ in 0 ..< -next {
 							let nodeID = propSpec[i] as! Int
 							i += 1

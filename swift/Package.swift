@@ -16,7 +16,12 @@ let package = Package(
 		// Targets are the basic building blocks of a package, defining a module or a test suite.
 		// Targets can depend on other targets in this package and products from dependencies.
 		.target(
-			name: "Rezel"
+			name: "Rezel",
+			exclude: ["Grammars/javascript.grammar", "Grammars/javascript.grammar-config", "Grammars/json.grammar", "Grammars/json.grammar-config", "Grammars/html.grammar", "Grammars/html.grammar-config"]
+		),
+		.executableTarget(
+			name: "RezelCodeGen",
+			dependencies: ["Rezel"]
 		),
 		.testTarget(
 			name: "RezelTests",
