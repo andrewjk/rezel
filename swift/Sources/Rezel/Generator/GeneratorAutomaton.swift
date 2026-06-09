@@ -187,7 +187,7 @@ func sameSetObj<T: AnyObject>(_ a: [T], _ b: [T]) -> Bool {
 	return true
 }
 
-public class Shift: CustomStringConvertible {
+public class Shift: CustomStringConvertible, Hashable {
 	public let term: Term
 	public let target: AutState
 
@@ -219,9 +219,18 @@ public class Shift: CustomStringConvertible {
 		let mapped = states[mapping[target.id]]
 		return mapped === target ? self : Shift(term: term, target: mapped)
 	}
+
+	public func hash(into hasher: inout Hasher) {
+		hasher.combine(ObjectIdentifier(term))
+		hasher.combine(target.id)
+	}
+
+	public static func == (lhs: Shift, rhs: Shift) -> Bool {
+		lhs.term === rhs.term && lhs.target.id == rhs.target.id
+	}
 }
 
-public class Reduce: CustomStringConvertible {
+public class Reduce: CustomStringConvertible, Hashable {
 	public let term: Term
 	public let rule: Rule
 
@@ -251,6 +260,17 @@ public class Reduce: CustomStringConvertible {
 
 	public func map(_: [Int], _: [AutState]) -> Reduce {
 		self
+	}
+
+	public func hash(into hasher: inout Hasher) {
+		hasher.combine(ObjectIdentifier(term))
+		hasher.combine(ObjectIdentifier(rule.name))
+		hasher.combine(rule.parts.count)
+		hasher.combine(rule.isRepeatWrap)
+	}
+
+	public static func == (lhs: Reduce, rhs: Reduce) -> Bool {
+		lhs.term === rhs.term && lhs.rule.sameReduce(rhs.rule)
 	}
 }
 
@@ -856,20 +876,37 @@ func mergeStates(_ states: [AutState], _ mapping: [Int]) -> [AutState] {
 		}
 	}
 	let resolved = newStates.compactMap { $0 }
+	var actionSets: [Int: Set<Shift>] = [:]
+	var reduceSets: [Int: Set<Reduce>] = [:]
+	var gotoSets: [Int: Set<Shift>] = [:]
 	for state in states {
 		let newID = mapping[state.id]
 		let target = newStates[newID]!
 		target.flags |= state.flags
+		if actionSets[newID] == nil {
+			actionSets[newID] = []
+			reduceSets[newID] = []
+			gotoSets[newID] = []
+		}
 		for i in 0 ..< state.actions.count {
 			let mapped = actionMap(state.actions[i], mapping, resolved)
-			if !target.actions.contains(where: { actionEq($0, mapped) }) {
-				target.actions.append(mapped)
-				target.actionPositions.append(state.actionPositions[i])
+			if let s = mapped as? Shift {
+				if actionSets[newID]!.insert(s).inserted {
+					target.actions.append(s)
+					target.actionPositions.append(state.actionPositions[i])
+				}
+			} else if let r = mapped as? Reduce {
+				if reduceSets[newID]!.insert(r).inserted {
+					target.actions.append(r)
+					target.actionPositions.append(state.actionPositions[i])
+				}
 			}
 		}
 		for goto in state.gotoActions {
 			let mapped = goto.map(mapping, resolved)
-			if !target.gotoActions.contains(where: { $0.eq(mapped) }) { target.gotoActions.append(mapped) }
+			if gotoSets[newID]!.insert(mapped).inserted {
+				target.gotoActions.append(mapped)
+			}
 		}
 	}
 	return resolved
