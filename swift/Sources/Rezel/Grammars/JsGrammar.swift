@@ -845,14 +845,14 @@ func makeJsExternalTokenizer(name: String, terms: [String: Int]) -> TokenizerPro
 					input.advance(); back += 1
 				}
 				if input.next == comma { return }
-				let extends = "extends"
-				for i in 0 ..< extends.count {
-					if i == extends.count - 1 {
+				let extendsStr = "extends"
+				let extendsScalars = Array(extendsStr.unicodeScalars)
+				for i in 0...extendsStr.count {
+					if i == extendsStr.count {
 						if !jsIdentifierChar(input.next, true) { return }
 						break
 					}
-					let scalars = Array(extends.unicodeScalars)
-					if input.next != Int(scalars[i].value) { break }
+					if input.next != Int(extendsScalars[i].value) { break }
 					input.advance()
 					back += 1
 				}
