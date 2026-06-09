@@ -933,7 +933,7 @@ nonisolated(unsafe) let jsHighlighting = styleTags([
 	"JSXBuiltin/JSXIdentifier": standardMod(hlTags["tagName"] as! Tag),
 ])
 
-public nonisolated(unsafe) let jsParser: LRParser = try! buildParser(jsGrammarText, options: BuildOptions(
+public nonisolated(unsafe) let javaScriptParser: LRParser = try! buildParser(jsGrammarText, options: BuildOptions(
 	externalTokenizer: makeJsExternalTokenizer,
 	externalPropSource: { _ in jsHighlighting },
 	contextTracker: jsTrackNewline

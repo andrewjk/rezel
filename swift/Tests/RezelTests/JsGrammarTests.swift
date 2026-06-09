@@ -16,7 +16,7 @@ private func runJsTests(_ file: String) throws {
 	let content = try String(contentsOf: jsTestDir.appendingPathComponent(file), encoding: .utf8)
 	let tests = try fileTests(content, file)
 	for t in tests {
-		try t.run(jsParser)
+		try t.run(javaScriptParser)
 	}
 }
 
