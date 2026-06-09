@@ -46,11 +46,5 @@ struct JsGrammarTests {
 		try runJsTests("typescript.txt")
 	}
 
-	@Test func debugSkip() {
-		for input in ["1;2;", "1;\n2;", "1\n2"] {
-			let tree = jsParser.parse(input: input)
-			let display = input.replacingOccurrences(of: "\n", with: "\\n")
-			print("'\(display)' -> \(tree)")
-		}
-	}
+
 }
