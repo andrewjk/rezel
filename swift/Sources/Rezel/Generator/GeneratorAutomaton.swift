@@ -459,6 +459,8 @@ func automatonClosure(_ set: [Pos], _ first: [String: [Term?]]) throws -> [Pos] 
 		}
 	}
 
+	var aheadSets: [ObjectIdentifier: Set<ObjectIdentifier>] = [:]
+
 	func addFor(_ name: Term, _ ahead: [Term], _ ambigAhead: [String], _ skipAhead: Term, _ via: Pos) throws {
 		for rule in name.rules {
 			let key = ObjectIdentifier(rule)
@@ -466,8 +468,10 @@ func automatonClosure(_ set: [Pos], _ first: [String: [Term?]]) throws -> [Pos] 
 			if add == nil {
 				if let existing = setByRule[key] {
 					add = Pos(rule: existing.rule, pos: 0, ahead: existing.ahead, ambigAhead: existing.ambigAhead, skipAhead: existing.skipAhead, via: existing.via)
+					aheadSets[key] = Set(existing.ahead.map { ObjectIdentifier($0) })
 				} else {
 					add = Pos(rule: rule, pos: 0, ahead: [], ambigAhead: [], skipAhead: skipAhead, via: via)
+					aheadSets[key] = []
 				}
 				added.append(add!)
 				addedByRule[key] = add!
@@ -478,12 +482,15 @@ func automatonClosure(_ set: [Pos], _ first: [String: [Term?]]) throws -> [Pos] 
 			if !ambigAhead.isEmpty || !add!.ambigAhead.isEmpty {
 				add!.ambigAhead = union(add!.ambigAhead, ambigAhead)
 			}
+			var aheadSet = aheadSets[key]!
 			for term in ahead {
-				if !add!.ahead.contains(where: { $0 === term }) {
+				let termKey = ObjectIdentifier(term)
+				if aheadSet.insert(termKey).inserted {
 					add!.ahead.append(term)
 					if !add!.rule.parts.isEmpty, !add!.rule.parts[0].terminal { addTo(add!, &redo) }
 				}
 			}
+			aheadSets[key] = aheadSet
 		}
 	}
 
@@ -815,13 +822,14 @@ func canMerge(_ a: AutState, _ b: AutState, _ mapping: [Int]) -> Bool {
 			if goto.term === other.term && mapping[goto.target.id] != mapping[other.target.id] { return false }
 		}
 	}
-	let byTerm = b.actionsByTerm()
+	let byTermB = b.actionsByTerm()
+	let byTermA = a.actionsByTerm()
 	for action in a.actions {
 		let t = actionTerm(action)
-		if let setB = byTerm[t.id] {
+		if let setB = byTermB[t.id] {
 			if setB.contains(where: { other in !actionMatches(action, other, mapping) }) {
 				if setB.count == 1 { return false }
-				let setA = a.actionsByTerm()[t.id]!
+				let setA = byTermA[t.id]!
 				if setA.count != setB.count { return false }
 				if setA.contains(where: { a1 in !setB.contains(where: { a2 in actionMatches(a1, a2, mapping) }) }) { return false }
 			}
@@ -847,23 +855,24 @@ func mergeStates(_ states: [AutState], _ mapping: [Int]) -> [AutState] {
 			newStates[newID] = ns
 		}
 	}
+	let resolved = newStates.compactMap { $0 }
 	for state in states {
 		let newID = mapping[state.id]
 		let target = newStates[newID]!
 		target.flags |= state.flags
 		for i in 0 ..< state.actions.count {
-			let mapped = actionMap(state.actions[i], mapping, newStates.compactMap { $0 })
+			let mapped = actionMap(state.actions[i], mapping, resolved)
 			if !target.actions.contains(where: { actionEq($0, mapped) }) {
 				target.actions.append(mapped)
 				target.actionPositions.append(state.actionPositions[i])
 			}
 		}
 		for goto in state.gotoActions {
-			let mapped = goto.map(mapping, newStates.compactMap { $0 })
+			let mapped = goto.map(mapping, resolved)
 			if !target.gotoActions.contains(where: { $0.eq(mapped) }) { target.gotoActions.append(mapped) }
 		}
 	}
-	return newStates.compactMap { $0 }
+	return resolved
 }
 
 func actionMap(_ a: ActionItem, _ mapping: [Int], _ states: [AutState]) -> ActionItem {
