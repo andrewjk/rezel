@@ -1,4 +1,19 @@
 import Foundation
+
+public class Expression: Node {
+	public var prec: Int {
+		get { 10 } set {}
+	}
+
+	public func walk(_ f: (Expression) -> Expression) -> Expression {
+		f(self)
+	}
+
+	public func eq(_: Expression) -> Bool {
+		false
+	}
+}
+
 public class NameExpression: Expression {
 	public let id: Identifier
 	public let args: [Expression]
