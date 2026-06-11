@@ -12,17 +12,8 @@ import {
 } from "./automaton";
 import { encodeArray } from "./encode";
 import { GenError } from "./error";
-import { Term, TermSet, Rule, Conflicts, Props, hasProps } from "./grammar";
-import { verbose, time } from "./log";
 import {
-	GrammarDeclaration,
-	RuleDeclaration,
-	TokenDeclaration,
-	LocalTokenDeclaration,
-	ExternalTokenDeclaration,
-	ExternalSpecializeDeclaration,
 	Expression,
-	Identifier,
 	LiteralExpression,
 	NameExpression,
 	SequenceExpression,
@@ -39,6 +30,17 @@ import {
 	CharClasses,
 	exprsEq,
 	exprEq,
+} from "./expression";
+import { Term, TermSet, Rule, Conflicts, Props, hasProps } from "./grammar";
+import { verbose, time } from "./log";
+import {
+	GrammarDeclaration,
+	RuleDeclaration,
+	TokenDeclaration,
+	LocalTokenDeclaration,
+	ExternalTokenDeclaration,
+	ExternalSpecializeDeclaration,
+	Identifier,
 } from "./node";
 import { Input } from "./parse";
 import { State, MAX_CHAR, Conflict } from "./token";

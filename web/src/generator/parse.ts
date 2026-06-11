@@ -1,19 +1,5 @@
 import { GenError } from "./error";
 import {
-	GrammarDeclaration,
-	RuleDeclaration,
-	PrecDeclaration,
-	TokenPrecDeclaration,
-	TokenConflictDeclaration,
-	TokenDeclaration,
-	LocalTokenDeclaration,
-	LiteralDeclaration,
-	ContextDeclaration,
-	ExternalTokenDeclaration,
-	ExternalPropSourceDeclaration,
-	ExternalSpecializeDeclaration,
-	ExternalPropDeclaration,
-	Identifier,
 	Expression,
 	NameExpression,
 	ChoiceExpression,
@@ -29,6 +15,22 @@ import {
 	ConflictMarker,
 	CharClasses,
 	CharClass,
+} from "./expression";
+import {
+	GrammarDeclaration,
+	RuleDeclaration,
+	PrecDeclaration,
+	TokenPrecDeclaration,
+	TokenConflictDeclaration,
+	TokenDeclaration,
+	LocalTokenDeclaration,
+	LiteralDeclaration,
+	ContextDeclaration,
+	ExternalTokenDeclaration,
+	ExternalPropSourceDeclaration,
+	ExternalSpecializeDeclaration,
+	ExternalPropDeclaration,
+	Identifier,
 } from "./node";
 
 // Note that this is the parser for grammar files, not the generated parser
