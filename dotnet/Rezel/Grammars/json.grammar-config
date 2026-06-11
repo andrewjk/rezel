@@ -1,0 +1,4 @@
+{
+  "grammarFile": "json.grammar",
+  "outputVarName": "JsonParser"
+}

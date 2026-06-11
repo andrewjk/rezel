@@ -1,0 +1,4 @@
+{
+  "grammarFile": "html.grammar",
+  "outputVarName": "HtmlParser"
+}
