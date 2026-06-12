@@ -7,7 +7,7 @@ public static class BalanceConstants
 
 public static class CutOffConstants
 {
-    public const int Depth = 150;
+    public const int Depth = 2500;
 }
 
 public static class SpecialRecord
@@ -267,7 +267,7 @@ public static class TreeBuilding
                 if (lastI >= 0 && children[lastI] is Tree last)
                 {
                     if (lastI == 0 && last.Type == type && last.Length == length) return last;
-                    if (last.Prop(NodeProps.LookAhead) is { } lookAheadProp)
+                    if (last.PropObj(NodeProps.LookAhead) is int lookAheadProp)
                         lookAheadVal = pos[lastI] + last.Length + lookAheadProp;
                 }
                 return MakeTreeInternal(type, children, pos, length, lookAheadVal, ctxHash);
@@ -339,7 +339,7 @@ public static class TreeBuilding
                     {
                         if (fork.Size == SpecialRecord.ContextChange || fork.Size == SpecialRecord.LookAhead)
                             localSkipped += 4;
-                        else return result.Size > 4 ? result : null;
+                        else break;
                     }
                     else if (fork.Id >= minRepeatType)
                     {

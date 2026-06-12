@@ -105,7 +105,7 @@ public class Tree
         {
             var entered = false;
             if (c.From <= toVal && c.To >= from &&
-                (!anon && c.Type.IsAnonymous) || enter(c.Ref) != false)
+                ((!anon && c.Type.IsAnonymous) || enter(c.Ref) != false))
             {
                 if (c.FirstChild()) continue;
                 entered = true;
@@ -124,11 +124,16 @@ public class Tree
     public object? PropObj(NodePropBase prop)
     {
         if (!prop.PerNode)
-            return Type.PropObj(prop);
+            return Type?.PropObj(prop);
         return Props != null && Props.TryGetValue(prop.Id, out var value) ? value : null;
     }
 
-    public T? Prop<T>(NodeProp<T> prop) => (T?)PropObj(prop);
+    public T? Prop<T>(NodeProp<T> prop)
+    {
+        var obj = PropObj(prop);
+        if (obj == null) return default;
+        return (T)obj;
+    }
 
     public (object, object)[] PropValues
     {

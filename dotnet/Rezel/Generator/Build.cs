@@ -23,7 +23,7 @@ public class BuildOptions
     public Func<string, Dictionary<string, int>, ExternalTokenizer>? ExternalTokenizerFn { get; set; }
     public Func<string, NodePropSource>? ExternalPropSource { get; set; }
     public Func<string, Dictionary<string, int>, Func<string, LrStack, int>>? ExternalSpecializer { get; set; }
-    public Func<string, NodeProp<object>>? ExternalProp { get; set; }
+    public Func<string, NodePropBase>? ExternalProp { get; set; }
     public object? ContextTracker { get; set; }
 }
 
@@ -384,7 +384,7 @@ public sealed class FinishStateContext
         if (state.Set.Any(p => p.Rule.Name.Top && p.Index == p.Rule.Parts.Length))
             flags |= LrStateFlag.Accepting;
 
-        var external = new List<TokenizerSpec>();
+        var external = new List<ExternalTokenDeclaration>();
         for (var i = 0; i < state.Actions.Count + skipTerms.Length; i++)
         {
             var term = i < state.Actions.Count ? state.Actions[i].Term : skipTerms[i - state.Actions.Count];
@@ -397,7 +397,7 @@ public sealed class FinishStateContext
                     continue;
                 }
                 if (orig.External is ExternalTokenSet extSet)
-                    BuildHelpers.AddToSet(external, new ExternalTokenGroupSpec(b, extSet.Ast));
+                    BuildHelpers.AddToSet(external, extSet.Ast);
                 break;
             }
         }
@@ -405,7 +405,7 @@ public sealed class FinishStateContext
         for (var i = 0; i < Tokenizers.Length; i++)
         {
             var tok = Tokenizers[i];
-            if (external.Any(e => ReferenceEquals(e, tok)) || tok.GroupID == state.TokenGroup) tokenizerMask |= 1 << i;
+            if (external.Any(e => tok is ExternalTokenGroupSpec ts && ReferenceEquals(e, ts.ExtAst)) || tok.GroupID == state.TokenGroup) tokenizerMask |= 1 << i;
         }
 
         var @base = state.Id * LrParseState.Size;
@@ -745,7 +745,7 @@ public class Builder
         var fullTable = Log.Time("Build full automaton", () =>
             Automaton.BuildFullAutomaton(Terms, startTerms.ToArray(), first));
         var localTokens = LocalTokens.Select((grp, i) =>
-            grp.BuildLocalGroup(fullTable, skipInfo, i + LocalTokens.Length)).ToArray();
+            grp.BuildLocalGroup(fullTable, skipInfo, i)).ToArray();
         var (tokenGroups, tokenPrec, tokenData) = Log.Time("Build token groups", () =>
             Tokens.BuildTokenGroups(fullTable, skipInfo, localTokens.Length));
         foreach (var ext in ExternalTokens) ext.CheckConflicts(fullTable, skipInfo);
@@ -840,7 +840,7 @@ public class Builder
                 if (kvp.Value.Count == 1) { terms.Add(kvp.Value[0]); terms.Add(kvp.Key); }
                 else { terms.Add(-kvp.Value.Count); foreach (var id in kvp.Value) terms.Add(id); terms.Add(kvp.Key); }
             }
-            return new NodePropSpec((NodeProp<object>)KnownProps[np.Prop].Prop, terms.ToArray());
+            return new NodePropSpec(KnownProps[np.Prop].Prop, terms.ToArray());
         }).ToArray();
         return LRParser.Deserialize(new LRParserSpec
         {

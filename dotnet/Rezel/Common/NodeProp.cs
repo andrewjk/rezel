@@ -16,6 +16,8 @@ public abstract class NodePropBase
         PerNode = perNode;
         Combine = combine;
     }
+
+    public abstract object DeserializeObject(string value);
 }
 
 public sealed class NodeProp<T> : NodePropBase
@@ -33,6 +35,8 @@ public sealed class NodeProp<T> : NodePropBase
     {
         Deserialize = _ => throw new InvalidOperationException("This node type doesn't define a deserialize function");
     }
+
+    public override object DeserializeObject(string value) => Deserialize(value)!;
 
     public NodePropSource Add(Func<NodeType, T?> match)
     {

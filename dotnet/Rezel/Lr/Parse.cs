@@ -698,9 +698,9 @@ public class LRParser : Parser
         var nodeProps = new List<(NodePropBase, object)>[nodeNames.Length];
         for (var i = 0; i < nodeProps.Length; i++) nodeProps[i] = [];
 
-        void SetProp(int nodeID, NodeProp<object> prop, string value)
+        void SetProp(int nodeID, NodePropBase prop, string value)
         {
-            nodeProps[nodeID].Add((prop, prop.Deserialize(value)));
+            nodeProps[nodeID].Add((prop, prop.DeserializeObject(value)));
         }
 
         if (spec.NodeProps != null)
@@ -708,7 +708,7 @@ public class LRParser : Parser
             foreach (var propSpec in spec.NodeProps)
             {
                 var prop = propSpec.Prop;
-                for (var i = 1; i < propSpec.Entries.Length;)
+                for (var i = 0; i < propSpec.Entries.Length;)
                 {
                     var next = (int)propSpec.Entries[i++];
                     if (next >= 0)
@@ -965,10 +965,10 @@ public sealed class LRParserSpec
 
 public sealed class NodePropSpec
 {
-    public NodeProp<object> Prop;
+    public NodePropBase Prop;
     public object[] Entries;
 
-    public NodePropSpec(NodeProp<object> prop, params object[] entries)
+    public NodePropSpec(NodePropBase prop, params object[] entries)
     {
         Prop = prop;
         Entries = entries;

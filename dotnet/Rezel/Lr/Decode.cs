@@ -18,6 +18,7 @@ public static class Decode
             var value = 0;
             while (true)
             {
+                if (pos >= s.Length) break;
                 var next = s[pos++];
                 if (next == Encode.BigValCode)
                 {
@@ -59,6 +60,7 @@ public static class Decode
             var value = 0;
             while (true)
             {
+                if (pos >= s.Length) break;
                 var next = s[pos++];
                 if (next == Encode.BigValCode)
                 {

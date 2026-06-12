@@ -19,6 +19,7 @@ public sealed class TreeNode : SyntaxNode
     public override string Name => _tree.Type.Name;
     public override int To => From + _tree.Length;
     public override Tree? Tree => _tree;
+    public override string ToString() => Name ?? "";
 
     internal SyntaxNode? NextChild(int i, int dir, int pos, Side side, IterMode mode = IterMode.None)
     {

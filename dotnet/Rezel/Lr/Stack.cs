@@ -99,7 +99,7 @@ public sealed class Stack
             ReducePos = Pos;
         var size = ReducePos - start;
 
-        if (size >= Recover.MinBigReduction && parser.NodeSet.Types[type] is { IsAnonymous: false })
+        if (size >= Recover.MinBigReduction && type < parser.NodeSet.Types.Length && parser.NodeSet.Types[type] is { IsAnonymous: false })
         {
             if (start == P.LastBigReductionStart)
             {
@@ -175,6 +175,8 @@ public sealed class Stack
                     }
                 }
                 if (mustMove)
+                {
+                    Buffer.Add(0); Buffer.Add(0); Buffer.Add(0); Buffer.Add(0);
                     while (index > 0 && Buffer[index - 2] > end)
                     {
                         Buffer[index] = Buffer[index - 4];
@@ -184,11 +186,22 @@ public sealed class Stack
                         index -= 4;
                         if (size > 4) size -= 4;
                     }
+                }
             }
-            Buffer[index] = term;
-            Buffer[index + 1] = start;
-            Buffer[index + 2] = end;
-            Buffer[index + 3] = size;
+            if (index == Buffer.Count)
+            {
+                Buffer.Add(term);
+                Buffer.Add(start);
+                Buffer.Add(end);
+                Buffer.Add(size);
+            }
+            else
+            {
+                Buffer[index] = term;
+                Buffer[index + 1] = start;
+                Buffer[index + 2] = end;
+                Buffer[index + 3] = size;
+            }
         }
     }
 

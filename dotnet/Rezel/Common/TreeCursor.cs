@@ -9,7 +9,7 @@ public sealed class TreeCursor : ISyntaxNodeRef
 
     public TreeNode _tree;
     public BufferContext? Buffer;
-    private readonly Stack<int> _stack = new();
+    private readonly List<int> _stack = [];
     public int Index;
     private BufferNode? _bufferNode;
     public readonly IterMode Mode;
@@ -34,7 +34,7 @@ public sealed class TreeCursor : ISyntaxNodeRef
             To = bufNode.To;
             Index = bufNode.Index;
             for (var n = bufNode.ParentRef; n != null; n = n.ParentRef)
-                _stack.Push(n.Index);
+                _stack.Add(n.Index);
             _bufferNode = bufNode;
         }
         else
@@ -112,7 +112,7 @@ public sealed class TreeCursor : ISyntaxNodeRef
                         c = c.ParentRef;
                     }
                     d--;
-                    if (d >= 0) idx = _stack.ToArray()[d];
+                    if (d >= 0) idx = _stack[d];
                 }
             endScan:;
             }
@@ -137,7 +137,7 @@ public sealed class TreeCursor : ISyntaxNodeRef
         while (i >= 0)
         {
             if (d < 0) return Helpers.MatchNodeContext(_tree, context, i);
-            var t = types[buf.Data[_stack.ToArray()[d]]];
+            var t = types[buf.Data[_stack[d]]];
             if (!t.IsAnonymous)
             {
                 if (!string.IsNullOrEmpty(context[i]) && context[i] != t.Name) return false;
@@ -167,7 +167,7 @@ public sealed class TreeCursor : ISyntaxNodeRef
             side
         );
         if (idx < 0) return false;
-        _stack.Push(Index);
+        _stack.Add(Index);
         return YieldBuf(idx);
     }
 
@@ -191,7 +191,7 @@ public sealed class TreeCursor : ISyntaxNodeRef
             var p = Mode.HasFlag(IterMode.IncludeAnonymous) ? _tree.ParentRef : _tree.Parent as TreeNode;
             return YieldNode(p);
         }
-        if (_stack.Count > 0) return YieldBuf(_stack.Pop());
+        if (_stack.Count > 0) { var v = _stack[^1]; _stack.RemoveAt(_stack.Count - 1); return YieldBuf(v); }
         var pp = Mode.HasFlag(IterMode.IncludeAnonymous)
             ? Buffer!.Parent
             : Buffer!.Parent.NextSignificantParent();
@@ -214,14 +214,14 @@ public sealed class TreeCursor : ISyntaxNodeRef
         var d = _stack.Count - 1;
         if (dir < 0)
         {
-            var parentStart = d < 0 ? 0 : _stack.ToArray()[d] + 4;
+            var parentStart = d < 0 ? 0 : _stack[d] + 4;
             if (Index != parentStart)
                 return YieldBuf(buf.Buffer.FindChild(parentStart, Index, -1, 0, Side.DontCare));
         }
         else
         {
             var after = buf.Data[Index + 3];
-            var parentEnd = d < 0 ? buf.Buffer.Buffer.Length : buf.Data[_stack.ToArray()[d] + 3];
+            var parentEnd = d < 0 ? buf.Buffer.Buffer.Length : buf.Data[_stack[d] + 3];
             if (after < parentEnd) return YieldBuf(after);
         }
 

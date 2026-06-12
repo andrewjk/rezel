@@ -7,12 +7,6 @@ public sealed class NodeSet
     public NodeSet(NodeType[] types)
     {
         Types = types;
-        for (var i = 0; i < types.Length; i++)
-        {
-            if (types[i].Id != i)
-                throw new InvalidOperationException(
-                    "Node type ids should correspond to array positions when creating a node set");
-        }
     }
 
     public NodeSet Extend(params NodePropSource[] props)

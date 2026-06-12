@@ -7,8 +7,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rezel", "Rezel\Rezel.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rezel.Tests", "Rezel.Tests\Rezel.Tests.csproj", "{88029816-0B18-4526-BDE0-4CA71B759838}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Rezel.Benchmarks", "Rezel.Benchmarks\Rezel.Benchmarks.csproj", "{F8C4A15C-6B94-477A-986F-2C48461D48FB}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

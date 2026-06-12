@@ -25,21 +25,21 @@ public static class JavaScriptParserData
         var nodeProps = NodeProps.ByName;
         var result = new List<NodePropSpec>();
 
-        if (nodeProps.TryGetValue("isolate", out var isolateProp) && isolateProp is NodeProp<object> isolateObj)
+        if (nodeProps.TryGetValue("isolate", out var isolateProp))
         {
-            result.Add(new NodePropSpec(isolateObj, new object[] { -8, 5, 6, 14, 37, 39, 51, 53, 55, "\"\"" }));
+            result.Add(new NodePropSpec(isolateProp, new object[] { -8, 5, 6, 14, 37, 39, 51, 53, 55, "\"\"" }));
         }
-        if (nodeProps.TryGetValue("group", out var groupProp) && groupProp is NodeProp<object> groupObj)
+        if (nodeProps.TryGetValue("group", out var groupProp))
         {
-            result.Add(new NodePropSpec(groupObj, new object[] { -26, 9, 17, 19, 68, 207, 211, 215, 216, 218, 221, 224, 234, 237, 243, 245, 247, 249, 252, 258, 264, 266, 268, 270, 272, 274, 275, "\"Statement\"", -34, 13, 14, 32, 35, 36, 42, 51, 54, 55, 57, 62, 70, 72, 76, 80, 82, 84, 85, 110, 111, 120, 121, 136, 139, 141, 142, 143, 144, 145, 147, 148, 167, 169, 171, "\"Expression\"", -23, 31, 33, 37, 41, 43, 45, 173, 175, 177, 178, 180, 181, 182, 184, 185, 186, 188, 189, 190, 201, 203, 205, 206, "\"Type\"", -3, 88, 103, 109, "\"ClassItem\"" }));
+            result.Add(new NodePropSpec(groupProp, new object[] { -26, 9, 17, 19, 68, 207, 211, 215, 216, 218, 221, 224, 234, 237, 243, 245, 247, 249, 252, 258, 264, 266, 268, 270, 272, 274, 275, "\"Statement\"", -34, 13, 14, 32, 35, 36, 42, 51, 54, 55, 57, 62, 70, 72, 76, 80, 82, 84, 85, 110, 111, 120, 121, 136, 139, 141, 142, 143, 144, 145, 147, 148, 167, 169, 171, "\"Expression\"", -23, 31, 33, 37, 41, 43, 45, 173, 175, 177, 178, 180, 181, 182, 184, 185, 186, 188, 189, 190, 201, 203, 205, 206, "\"Type\"", -3, 88, 103, 109, "\"ClassItem\"" }));
         }
-        if (nodeProps.TryGetValue("openedBy", out var openedByProp) && openedByProp is NodeProp<object> openedByObj)
+        if (nodeProps.TryGetValue("openedBy", out var openedByProp))
         {
-            result.Add(new NodePropSpec(openedByObj, new object[] { 23, "\"\\u003C\"", 38, "\"InterpolationStart\"", 56, "\"[\"", 60, "\"{\"", 73, "\"(\"", 160, "\"JSXStartCloseTag\"" }));
+            result.Add(new NodePropSpec(openedByProp, new object[] { 23, "\"\\u003C\"", 38, "\"InterpolationStart\"", 56, "\"[\"", 60, "\"{\"", 73, "\"(\"", 160, "\"JSXStartCloseTag\"" }));
         }
-        if (nodeProps.TryGetValue("closedBy", out var closedByProp) && closedByProp is NodeProp<object> closedByObj)
+        if (nodeProps.TryGetValue("closedBy", out var closedByProp))
         {
-            result.Add(new NodePropSpec(closedByObj, new object[] { -2, 24, 168, "\"\\u003E\"", 40, "\"InterpolationEnd\"", 50, "\"]\"", 61, "\"}\"", 74, "\")\"", 165, "\"JSXEndTag\"" }));
+            result.Add(new NodePropSpec(closedByProp, new object[] { -2, 24, 168, "\"\\u003E\"", 40, "\"InterpolationEnd\"", 50, "\"]\"", 61, "\"}\"", 74, "\")\"", 165, "\"JSXEndTag\"" }));
         }
         return result.Count > 0 ? result.ToArray() : null;
     }

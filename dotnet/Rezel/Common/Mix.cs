@@ -237,11 +237,9 @@ internal sealed class MixedParse : IPartialParse
                 }
                 enter = false;
             }
-            else if (covered != null)
+            else if (covered != null && CheckCoverValue(covered.Ranges, cursor.From, cursor.To) is { } isCovered)
             {
-                var isCovered = CheckCoverValue(covered.Ranges, cursor.From, cursor.To);
-                if (isCovered != null)
-                    enter = isCovered != Cover.Full;
+                enter = isCovered != Cover.Full;
             }
             else if (!cursor.Type.IsAnonymous &&
                      _nest(cursor.Ref, _input) is { } nestResult &&
@@ -492,7 +490,7 @@ internal sealed class MixedParse : IPartialParse
                 {
                     current![j] = new CommonRange(r.From, gapFrom);
                     if (r.To > gapTo)
-                        current = current[..j].Append(new CommonRange(gapTo, r.To)).Concat(current[j..]).ToArray();
+                        current = current[..(j + 1)].Append(new CommonRange(gapTo, r.To)).Concat(current[(j + 1)..]).ToArray();
                 }
                 else if (r.To > gapTo)
                 {
@@ -604,12 +602,12 @@ internal sealed class MixedParse : IPartialParse
             var p = pos - _offset;
             while (!Done && Cursor.From < p)
             {
-                if (Cursor.To >= p &&
+                if (Cursor.To >= pos &&
                     Cursor.Enter(p, 1, IterMode.IgnoreOverlays | IterMode.ExcludeBuffers))
                 {
                     // Entered
                 }
-                else if (Cursor.To <= p)
+                else if (Cursor.To <= pos)
                 {
                     if (!Cursor.Next(false)) Done = true;
                 }
@@ -654,7 +652,7 @@ internal sealed class MixedParse : IPartialParse
             {
                 var first = fragments[0];
                 _curFrag = first;
-                _curTo = first.Tree.Prop(StoppedInner) is int stopped ? stopped : first.To;
+                _curTo = first.Tree.PropObj(StoppedInner) is int stopped ? stopped : first.To;
                 _inner = new StructureCursor(first.Tree, -first.Offset);
             }
         }
@@ -679,7 +677,7 @@ internal sealed class MixedParse : IPartialParse
             {
                 var frag = _fragments[_fragI];
                 _curFrag = frag;
-                _curTo = frag.Tree.Prop(StoppedInner) is int stopped2 ? stopped2 : frag.To;
+                _curTo = frag.Tree.PropObj(StoppedInner) is int stopped2 ? stopped2 : frag.To;
                 _inner = new StructureCursor(frag.Tree, -frag.Offset);
             }
         }

@@ -25,21 +25,21 @@ public static class HtmlParserData
         var nodeProps = NodeProps.ByName;
         var result = new List<NodePropSpec>();
 
-        if (nodeProps.TryGetValue("closedBy", out var closedByProp) && closedByProp is NodeProp<object> closedByObj)
+        if (nodeProps.TryGetValue("closedBy", out var closedByProp))
         {
-            result.Add(new NodePropSpec(closedByObj, new object[] { -10, 1, 2, 3, 7, 8, 9, 10, 11, 12, 13, "\"EndTag\"", 6, "\"EndTag SelfClosingEndTag\"", -4, 22, 31, 34, 37, "\"CloseTag\"" }));
+            result.Add(new NodePropSpec(closedByProp, new object[] { -10, 1, 2, 3, 7, 8, 9, 10, 11, 12, 13, "\"EndTag\"", 6, "\"EndTag SelfClosingEndTag\"", -4, 22, 31, 34, 37, "\"CloseTag\"" }));
         }
-        if (nodeProps.TryGetValue("openedBy", out var openedByProp) && openedByProp is NodeProp<object> openedByObj)
+        if (nodeProps.TryGetValue("openedBy", out var openedByProp))
         {
-            result.Add(new NodePropSpec(openedByObj, new object[] { 4, "\"StartTag StartCloseTag\"", 5, "\"StartTag\"", -4, 30, 33, 36, 38, "\"OpenTag\"" }));
+            result.Add(new NodePropSpec(openedByProp, new object[] { 4, "\"StartTag StartCloseTag\"", 5, "\"StartTag\"", -4, 30, 33, 36, 38, "\"OpenTag\"" }));
         }
-        if (nodeProps.TryGetValue("group", out var groupProp) && groupProp is NodeProp<object> groupObj)
+        if (nodeProps.TryGetValue("group", out var groupProp))
         {
-            result.Add(new NodePropSpec(groupObj, new object[] { -10, 14, 15, 18, 19, 20, 21, 40, 41, 42, 43, "\"Entity\"", 17, "\"Entity TextContent\"", -3, 29, 32, 35, "\"TextContent Entity\"" }));
+            result.Add(new NodePropSpec(groupProp, new object[] { -10, 14, 15, 18, 19, 20, 21, 40, 41, 42, 43, "\"Entity\"", 17, "\"Entity TextContent\"", -3, 29, 32, 35, "\"TextContent Entity\"" }));
         }
-        if (nodeProps.TryGetValue("isolate", out var isolateProp) && isolateProp is NodeProp<object> isolateObj)
+        if (nodeProps.TryGetValue("isolate", out var isolateProp))
         {
-            result.Add(new NodePropSpec(isolateObj, new object[] { -11, 22, 30, 31, 33, 34, 36, 37, 38, 39, 42, 43, "\"ltr\"", -3, 27, 28, 40, "\"\"" }));
+            result.Add(new NodePropSpec(isolateProp, new object[] { -11, 22, 30, 31, 33, 34, 36, 37, 38, 39, 42, 43, "\"ltr\"", -3, 27, 28, 40, "\"\"" }));
         }
         return result.Count > 0 ? result.ToArray() : null;
     }

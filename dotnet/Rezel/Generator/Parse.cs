@@ -19,6 +19,22 @@ public class Input
     static readonly Regex SQStringRegex = new("^(?:\\\\.|[^'\\\\])*'", RegexOptions.Compiled);
     static readonly Regex SetCloseRegex = new("^(?:\\\\.|[^\\]\\\\])*\\]", RegexOptions.Compiled);
     static readonly Regex WordRegex = new(@"[\p{L}\d_-]+", RegexOptions.Compiled);
+
+    static bool IsIdentChar(string source, int pos, out int charLen)
+    {
+        char ch = source[pos];
+        if (char.IsHighSurrogate(ch) && pos + 1 < source.Length && char.IsLowSurrogate(source[pos + 1]))
+        {
+            int codePoint = char.ConvertToUtf32(ch, source[pos + 1]);
+            var cat = CharUnicodeInfo.GetUnicodeCategory(codePoint);
+            charLen = 2;
+            return cat == UnicodeCategory.UppercaseLetter || cat == UnicodeCategory.LowercaseLetter ||
+                   cat == UnicodeCategory.TitlecaseLetter || cat == UnicodeCategory.ModifierLetter ||
+                   cat == UnicodeCategory.OtherLetter;
+        }
+        charLen = 1;
+        return ch == '_' || ch == '-' || char.IsLetterOrDigit(ch);
+    }
     static readonly Regex SetDashRegex = new(@"\\.|-|""", RegexOptions.Compiled);
 
     const string SetMarker = "\ufdda";
@@ -91,9 +107,10 @@ public class Input
         }
         else if (next == '@')
         {
-            var m = WordRegex.Match(Source, start + 1);
-            if (!m.Success || m.Index != start + 1) Raise("@ without a name", start);
-            Set("at", m.Value, start, start + 1 + m.Length);
+            int end = start + 1;
+            while (end < Source.Length && IsIdentChar(Source, end, out int cl)) end += cl;
+            if (end == start + 1) Raise("@ without a name", start);
+            Set("at", Source[(start + 1)..end], start, end);
         }
         else if ((next == '$' || next == '!') && start + 1 < Source.Length && Source[start + 1] == '[')
         {
@@ -107,9 +124,12 @@ public class Input
         }
         else
         {
-            var m = WordRegex.Match(Source, start);
-            if (!m.Success || m.Index != start) Raise($"Unexpected character \"{next}\"", start);
-            Set("id", m.Value, start, start + m.Length);
+            int end = start;
+            while (end < Source.Length && IsIdentChar(Source, end, out int cl)) end += cl;
+            if (end > start)
+                Set("id", Source[start..end], start, end);
+            else
+                Raise($"Unexpected character \"{next}\"", start);
         }
     }
 

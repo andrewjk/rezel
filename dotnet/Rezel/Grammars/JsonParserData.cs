@@ -25,17 +25,17 @@ public static class JsonParserData
         var nodeProps = NodeProps.ByName;
         var result = new List<NodePropSpec>();
 
-        if (nodeProps.TryGetValue("isolate", out var isolateProp) && isolateProp is NodeProp<object> isolateObj)
+        if (nodeProps.TryGetValue("isolate", out var isolateProp))
         {
-            result.Add(new NodePropSpec(isolateObj, new object[] { -2, 6, 11, "\"\"" }));
+            result.Add(new NodePropSpec(isolateProp, new object[] { -2, 6, 11, "\"\"" }));
         }
-        if (nodeProps.TryGetValue("openedBy", out var openedByProp) && openedByProp is NodeProp<object> openedByObj)
+        if (nodeProps.TryGetValue("openedBy", out var openedByProp))
         {
-            result.Add(new NodePropSpec(openedByObj, new object[] { 7, "\"{\"", 14, "\"[\"" }));
+            result.Add(new NodePropSpec(openedByProp, new object[] { 7, "\"{\"", 14, "\"[\"" }));
         }
-        if (nodeProps.TryGetValue("closedBy", out var closedByProp) && closedByProp is NodeProp<object> closedByObj)
+        if (nodeProps.TryGetValue("closedBy", out var closedByProp))
         {
-            result.Add(new NodePropSpec(closedByObj, new object[] { 8, "\"}\"", 15, "\"]\"" }));
+            result.Add(new NodePropSpec(closedByProp, new object[] { 8, "\"}\"", 15, "\"]\"" }));
         }
         return result.Count > 0 ? result.ToArray() : null;
     }

@@ -119,9 +119,9 @@ static string GenerateCSharp(string varName, SerializedParser serialized)
         {
             var propName = serialized.NodePropNames[i];
             var propData = serialized.NodePropData[i];
-            lines.Add($"        if (nodeProps.TryGetValue(\"{EscapeString(propName)}\", out var {propName}Prop) && {propName}Prop is NodeProp<object> {propName}Obj)");
+            lines.Add($"        if (nodeProps.TryGetValue(\"{EscapeString(propName)}\", out var {propName}Prop))");
             lines.Add("        {");
-            lines.Add($"            result.Add(new NodePropSpec({propName}Obj, {LiteralAnyArray(propData)}));");
+            lines.Add($"            result.Add(new NodePropSpec({propName}Prop, {LiteralAnyArray(propData)}));");
             lines.Add("        }");
         }
         lines.Add("        return result.Count > 0 ? result.ToArray() : null;");
