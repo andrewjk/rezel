@@ -929,7 +929,7 @@ public class LRParser : Parser
         {
             if (!flags[i])
             {
-                for (var j = Dialects[values[i]]; ; )
+                for (var j = Dialects[values[i]]; ;)
                 {
                     var id = Data[j++];
                     if (id == Seq.End) break;

@@ -223,7 +223,12 @@ public class TreeTests
 
     static readonly Dictionary<string, int> SimpleCount = new()
     {
-        ["a"] = 7, ["b"] = 3, ["c"] = 3, ["Br"] = 3, ["Pa"] = 2, ["T"] = 1
+        ["a"] = 7,
+        ["b"] = 3,
+        ["c"] = 3,
+        ["Br"] = 3,
+        ["Pa"] = 2,
+        ["T"] = 1
     };
 
     [TestMethod]

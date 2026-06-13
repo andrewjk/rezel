@@ -18,7 +18,7 @@ public static class EncodeUtil
         if (value == Enc.BigVal) return ((char)Enc.BigValCode).ToString();
         var result = "";
         var first = Enc.Base;
-        for (;;)
+        for (; ; )
         {
             var low = value % Enc.Base;
             var rest = value - low;

@@ -765,7 +765,7 @@ file static class Helpers
     {
         var pos = conflictPos;
         var path = new List<Term>();
-        for (;;)
+        for (; ; )
         {
             for (var i = pos.Index - 1; i >= 0; i--)
                 path.Add(pos.Rule.Parts[i]);
@@ -826,7 +826,7 @@ public static class Automaton
         foreach (var t in terms.Terms)
             if (!t.Terminal)
                 table[t.Name] = new List<Term?>();
-        for (;;)
+        for (; ; )
         {
             var change = false;
             foreach (var nt in terms.Terms)

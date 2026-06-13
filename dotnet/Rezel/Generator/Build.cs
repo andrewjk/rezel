@@ -235,7 +235,7 @@ public sealed class DataBuilder
 
     private static int FindArray(List<int> data, int[] value)
     {
-        for (int i = 0; ; )
+        for (int i = 0; ;)
         {
             var next = data.IndexOf(value[0], i);
             if (next == -1 || next + value.Length > data.Count) break;
@@ -804,13 +804,23 @@ public class Builder
         var (nodeProps, skippedTypes) = GatherNodeProps(nodeTypes);
         return new PrepareResult
         {
-            States = states, StateData = data.Finish(), Goto = BuildHelpers.ComputeGotoTable(table),
+            States = states,
+            StateData = data.Finish(),
+            Goto = BuildHelpers.ComputeGotoTable(table),
             NodeNames = string.Join(" ", nodeTypes.Where(t => t.Id < minRepeatTerm).Select(t => t.NodeName)),
-            NodeProps = nodeProps, SkippedTypes = skippedTypes, MaxTerm = maxTerm,
-            RepeatNodeCount = nodeTypes.Count - minRepeatTerm, Tokenizers = tokenizers,
-            TokenData = tokenData, TopRules = topRules, Dialects = dialects,
-            DynamicPrecedences = dynamicPrecedences, Specialized = specialized,
-            TokenPrec = precTable, TermNames = termNames, TermTable = TermTable
+            NodeProps = nodeProps,
+            SkippedTypes = skippedTypes,
+            MaxTerm = maxTerm,
+            RepeatNodeCount = nodeTypes.Count - minRepeatTerm,
+            Tokenizers = tokenizers,
+            TokenData = tokenData,
+            TopRules = topRules,
+            Dialects = dialects,
+            DynamicPrecedences = dynamicPrecedences,
+            Specialized = specialized,
+            TokenPrec = precTable,
+            TermNames = termNames,
+            TermTable = TermTable
         };
     }
 
@@ -822,9 +832,13 @@ public class Builder
             if (v is ExternalSpecializer ext)
             {
                 var externalFn = Options.ExternalSpecializer!(ext.Ast.Id.Name, TermTable);
-                return new SpecializerSpec { Term = ext.Term!.Id,
+                return new SpecializerSpec
+                {
+                    Term = ext.Term!.Id,
                     Get = (value, stack) => (externalFn(value, stack) << 1) | (ext.Ast.Type == "extend" ? LrSpecializeConsts.Extend : LrSpecializeConsts.Specialize),
-                    External = externalFn, Extend = ext.Ast.Type == "extend" };
+                    External = externalFn,
+                    Extend = ext.Ast.Type == "extend"
+                };
             }
             else
             {
@@ -844,8 +858,12 @@ public class Builder
         }).ToArray();
         return LRParser.Deserialize(new LRParserSpec
         {
-            Version = LrFile.Version, States = prep.States, StateData = prep.StateData,
-            Goto = prep.Goto, NodeNames = prep.NodeNames, MaxTerm = prep.MaxTerm,
+            Version = LrFile.Version,
+            States = prep.States,
+            StateData = prep.StateData,
+            Goto = prep.Goto,
+            NodeNames = prep.NodeNames,
+            MaxTerm = prep.MaxTerm,
             RepeatNodeCount = prep.RepeatNodeCount,
             NodeProps = nodePropSpecs.Length > 0 ? nodePropSpecs : null,
             PropSources = Options.ExternalPropSource != null ? Ast.ExternalPropSources.Select(s => Options.ExternalPropSource!(s.Id.Name)).ToArray() : null,
@@ -854,9 +872,11 @@ public class Builder
             Tokenizers = prep.Tokenizers.Select(t => t.Create()).ToArray(),
             TopRules = prep.TopRules,
             Context = Ast.Context != null && Options.ContextTracker is ContextTracker ct ? ct : null,
-            Dialects = prep.Dialects, DynamicPrecedences = prep.DynamicPrecedences,
+            Dialects = prep.Dialects,
+            DynamicPrecedences = prep.DynamicPrecedences,
             Specialized = specialized.Length > 0 ? specialized : null,
-            TokenPrec = prep.TokenPrec, TermNames = Options.IncludeNames ? prep.TermNames : null
+            TokenPrec = prep.TokenPrec,
+            TermNames = Options.IncludeNames ? prep.TermNames : null
         });
     }
 
@@ -1356,11 +1376,11 @@ public class Builder
             if (recur.Contains(r)) Raise($"Rule '{ast.Id.Name}' cannot define a group because it contains a non-named recursive rule ('{r.Name}')", ast.Start);
             var res = new List<Term>(); recur.Add(r);
             foreach (var rule in Rules) if (rule.Name == r)
-            {
-                var names = rule.Parts.Select(GetNamed).Where(x => x.Count > 0).ToList();
-                if (names.Count > 1) Raise($"Rule '{ast.Id.Name}' cannot define a group because some choices produce multiple named nodes", ast.Start);
-                if (names.Count == 1) res.AddRange(names[0]);
-            }
+                {
+                    var names = rule.Parts.Select(GetNamed).Where(x => x.Count > 0).ToList();
+                    if (names.Count > 1) Raise($"Rule '{ast.Id.Name}' cannot define a group because some choices produce multiple named nodes", ast.Start);
+                    if (names.Count == 1) res.AddRange(names[0]);
+                }
             recur.RemoveAt(recur.Count - 1); return res;
         }
         foreach (var n in GetNamed(rule))
@@ -1374,11 +1394,11 @@ public class Builder
     {
         var groups = new Dictionary<string, List<Term>>(); var nodeNames = new Dictionary<string, bool>();
         foreach (var term in Terms.Terms) if (term.NodeName != null)
-        {
-            nodeNames[term.NodeName] = true;
-            if (term.Props.ContainsKey("group")) foreach (var g in term.Props["group"].Split(' '))
-            { if (!groups.TryGetValue(g, out var l)) { l = []; groups[g] = l; } l.Add(term); }
-        }
+            {
+                nodeNames[term.NodeName] = true;
+                if (term.Props.ContainsKey("group")) foreach (var g in term.Props["group"].Split(' '))
+                    { if (!groups.TryGetValue(g, out var l)) { l = []; groups[g] = l; } l.Add(term); }
+            }
         var names = groups.Keys.ToList();
         for (var i = 0; i < names.Count; i++)
         {
@@ -1491,17 +1511,17 @@ public class TokenSet
     {
         var rel = new List<PrecRelation>();
         if (Ast != null) foreach (var group in Ast.Precedences)
-        {
-            var prev = new List<Term>();
-            foreach (var item in group.Items)
             {
-                var level = new List<Term>();
-                if (item is NameExpression ne) { foreach (var b in BuiltRules) if (ne.Args.Length > 0 ? b.Matches(ne) : b.Id == ne.Id.Name) level.Add(b.Term); }
-                else { var id = JsonSerializer.Serialize(((LiteralExpression)item).Value); var f = BuiltRules.Find(b => b.Id == id); if (f != null) level.Add(f.Term); }
-                if (level.Count == 0) B.Warn($"Precedence specified for unknown token {item}", item.Start);
-                foreach (var t in level) BuildHelpers.AddRel(rel, t, prev); prev = prev.Concat(level).ToList();
+                var prev = new List<Term>();
+                foreach (var item in group.Items)
+                {
+                    var level = new List<Term>();
+                    if (item is NameExpression ne) { foreach (var b in BuiltRules) if (ne.Args.Length > 0 ? b.Matches(ne) : b.Id == ne.Id.Name) level.Add(b.Term); }
+                    else { var id = JsonSerializer.Serialize(((LiteralExpression)item).Value); var f = BuiltRules.Find(b => b.Id == id); if (f != null) level.Add(f.Term); }
+                    if (level.Count == 0) B.Warn($"Precedence specified for unknown token {item}", item.Start);
+                    foreach (var t in level) BuildHelpers.AddRel(rel, t, prev); prev = prev.Concat(level).ToList();
+                }
             }
-        }
         PrecedenceRelations = rel.ToArray();
     }
 
@@ -1511,18 +1531,27 @@ public class TokenSet
     {
         var precTable = new List<int>(); var rel = PrecedenceRelations.ToList();
         foreach (var c in softConflicts) if (c.Soft != 0)
+            {
+                var a = c.A; var b = c.B;
+                if (!rel.Any(r => r.Term == a) || !rel.Any(r => r.Term == b)) continue;
+                if (c.Soft < 0) (a, b) = (b, a);
+                BuildHelpers.AddRel(rel, b, [a]); BuildHelpers.AddRel(rel, a, []);
+            }
+        while (rel.Count > 0)
         {
-            var a = c.A; var b = c.B;
-            if (!rel.Any(r => r.Term == a) || !rel.Any(r => r.Term == b)) continue;
-            if (c.Soft < 0) (a, b) = (b, a);
-            BuildHelpers.AddRel(rel, b, [a]); BuildHelpers.AddRel(rel, a, []);
+            var found = false;
+            for (var i = 0; i < rel.Count; i++)
+            {
+                var rec = rel[i];
+                if (rec.After.All(t => precTable.Contains(t.Id)))
+                {
+                    precTable.Add(rec.Term.Id);
+                    if (rel.Count == 1) goto done; rel[i] = rel[^1]; rel.RemoveAt(rel.Count - 1); found = true; break;
+                }
+            }
+            if (!found) B.Raise($"Cyclic token precedence relation between {string.Join(", ", rel.Select(r => r.Term))}");
         }
-        while (rel.Count > 0) { var found = false;
-            for (var i = 0; i < rel.Count; i++) { var rec = rel[i];
-                if (rec.After.All(t => precTable.Contains(t.Id))) { precTable.Add(rec.Term.Id);
-                    if (rel.Count == 1) goto done; rel[i] = rel[^1]; rel.RemoveAt(rel.Count - 1); found = true; break; } }
-            if (!found) B.Raise($"Cyclic token precedence relation between {string.Join(", ", rel.Select(r => r.Term))}"); }
-        done: return precTable.ToArray();
+    done: return precTable.ToArray();
     }
 }
 
@@ -1554,10 +1583,10 @@ public sealed class MainTokenSet : TokenSet
             B.Warn($"Conflict specified for unknown token {e}", e.Start); return null;
         }
         if (Ast?.Conflicts != null) foreach (var c in Ast.Conflicts)
-        {
-            var a = Resolve(c.A); var b = Resolve(c.B);
-            if (a != null && b != null) { if (a.Id < b.Id) (a, b) = (b, a); ExplicitConflicts.Add((a, b)); }
-        }
+            {
+                var a = Resolve(c.A); var b = Resolve(c.B);
+                if (a != null && b != null) { if (a.Id < b.Id) (a, b) = (b, a); ExplicitConflicts.Add((a, b)); }
+            }
     }
 
     public (TokenGroupSpec[] tokenGroups, int[] tokenPrec, ushort[] tokenData) BuildTokenGroups(
@@ -1589,16 +1618,16 @@ public sealed class MainTokenSet : TokenSet
             }
             if (stateTerms.Count == 0) continue;
             foreach (var t in stateTerms) foreach (var conflict in conflicts)
-            {
-                var conflicting = conflict.A == t ? conflict.B : conflict.B == t ? conflict.A : null;
-                if (conflicting == null) continue;
-                if (stateTerms.Contains(conflicting) && !errors.Any(e => e.c == conflict))
                 {
-                    var example = !string.IsNullOrEmpty(conflict.ExampleA) ? $" (example: {JsonSerializer.Serialize(conflict.ExampleA)}{(!string.IsNullOrEmpty(conflict.ExampleB) ? $" vs {JsonSerializer.Serialize(conflict.ExampleB)}" : "")})" : "";
-                    errors.Add((conflict, $"Overlapping tokens {t.Name} and {conflicting.Name} used in same context{example}\nAfter: {state.Set[0].Trail()}"));
+                    var conflicting = conflict.A == t ? conflict.B : conflict.B == t ? conflict.A : null;
+                    if (conflicting == null) continue;
+                    if (stateTerms.Contains(conflicting) && !errors.Any(e => e.c == conflict))
+                    {
+                        var example = !string.IsNullOrEmpty(conflict.ExampleA) ? $" (example: {JsonSerializer.Serialize(conflict.ExampleA)}{(!string.IsNullOrEmpty(conflict.ExampleB) ? $" vs {JsonSerializer.Serialize(conflict.ExampleB)}" : "")})" : "";
+                        errors.Add((conflict, $"Overlapping tokens {t.Name} and {conflicting.Name} used in same context{example}\nAfter: {state.Set[0].Trail()}"));
+                    }
+                    BuildHelpers.AddToSet(terms, t); BuildHelpers.AddToSet(incompatible, conflicting);
                 }
-                BuildHelpers.AddToSet(terms, t); BuildHelpers.AddToSet(incompatible, conflicting);
-            }
             TokenGroupSpec? tokenGroup = null;
             foreach (var g in groups) { if (incompatible.Any(t => g.Tokens.Contains(t))) continue; foreach (var t in terms) BuildHelpers.AddToSet(g.Tokens, t); tokenGroup = g; break; }
             if (tokenGroup == null) { tokenGroup = new TokenGroupSpec(terms.ToArray(), groups.Count + startID); groups.Add(tokenGroup); }
@@ -1708,17 +1737,17 @@ public sealed class ExternalTokenSet
             else conflicting.Add(term);
         }
         if (conflicting.Count > 0) foreach (var state in states)
-        {
-            var skip = skipInfo[Array.IndexOf(B.SkipRules, state.Skip)].StartTokens;
-            var relevant = false; Term? conflict = null;
-            for (var i = 0; i < state.Actions.Count + skip.Length; i++)
             {
-                var t = i < state.Actions.Count ? state.Actions[i].Term : skip[i - state.Actions.Count];
-                if (Tokens.ContainsKey(t.Name)) relevant = true;
-                else if (conflicting.Contains(t)) conflict = t;
+                var skip = skipInfo[Array.IndexOf(B.SkipRules, state.Skip)].StartTokens;
+                var relevant = false; Term? conflict = null;
+                for (var i = 0; i < state.Actions.Count + skip.Length; i++)
+                {
+                    var t = i < state.Actions.Count ? state.Actions[i].Term : skip[i - state.Actions.Count];
+                    if (Tokens.ContainsKey(t.Name)) relevant = true;
+                    else if (conflicting.Contains(t)) conflict = t;
+                }
+                if (relevant && conflict != null) B.Raise($"Tokens from external group used together with conflicting token '{conflict.Name}'\nAfter: {state.Set[0].Trail()}", Ast.Start);
             }
-            if (relevant && conflict != null) B.Raise($"Tokens from external group used together with conflicting token '{conflict.Name}'\nAfter: {state.Set[0].Trail()}", Ast.Start);
-        }
     }
 }
 
@@ -1797,12 +1826,12 @@ public static class BuildHelpers
     {
         var gotoMap = new Dictionary<int, Dictionary<int, List<int>>>(); var maxTerm = 0;
         foreach (var state in states) foreach (var entry in state.Goto)
-        {
-            maxTerm = Math.Max(entry.Term.Id, maxTerm);
-            if (!gotoMap.TryGetValue(entry.Term.Id, out var set)) { set = []; gotoMap[entry.Term.Id] = set; }
-            if (!set.TryGetValue(entry.Target.Id, out var list)) { list = []; set[entry.Target.Id] = list; }
-            list.Add(state.Id);
-        }
+            {
+                maxTerm = Math.Max(entry.Term.Id, maxTerm);
+                if (!gotoMap.TryGetValue(entry.Term.Id, out var set)) { set = []; gotoMap[entry.Term.Id] = set; }
+                if (!set.TryGetValue(entry.Target.Id, out var list)) { list = []; set[entry.Target.Id] = list; }
+                list.Add(state.Id);
+            }
         var data = new DataBuilder(); var index = new List<int>(); var offset = maxTerm + 2;
         for (var term = 0; term <= maxTerm; term++)
         {
@@ -1905,11 +1934,11 @@ public static class BuildHelpers
         {
             var inlinable = new Dictionary<string, Rule[]>(); var found = false;
             if (pass == 0) foreach (var rule in rules) if (rule.Name.Inline && !inlinable.ContainsKey(rule.Name.Name))
-            {
-                var group = rules.Where(r => r.Name == rule.Name).ToArray();
-                if (group.Any(r => r.Parts.Contains(rule.Name))) continue;
-                inlinable[rule.Name.Name] = group; found = true;
-            }
+                    {
+                        var group = rules.Where(r => r.Name == rule.Name).ToArray();
+                        if (group.Any(r => r.Parts.Contains(rule.Name))) continue;
+                        inlinable[rule.Name.Name] = group; found = true;
+                    }
             for (var i = 0; i < rules.Length; i++)
             {
                 var rule = rules[i];
@@ -1930,7 +1959,7 @@ public static class BuildHelpers
                 {
                     if (at == rule.Parts.Length) { newRules.Add(new Rule(rule.Name, parts, conflicts, rule.Skip)); return; }
                     var next = rule.Parts[at];
-                    if (!inlinable.TryGetValue(next.Name, out var replace)) { Expand(at + 1, [..conflicts, rule.Conflicts[at + 1]], [..parts, next]); return; }
+                    if (!inlinable.TryGetValue(next.Name, out var replace)) { Expand(at + 1, [.. conflicts, rule.Conflicts[at + 1]], [.. parts, next]); return; }
                     foreach (var r in replace)
                     {
                         var nc = new List<Conflicts>();

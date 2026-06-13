@@ -22,14 +22,14 @@ public class TestSpec
         Wildcard = wildcard;
     }
 
-        public static List<TestSpec> Parse(string spec)
-        {
-            var pos = 0;
-            var tok = "sof";
-            var value = "";
+    public static List<TestSpec> Parse(string spec)
+    {
+        var pos = 0;
+        var tok = "sof";
+        var value = "";
 
-            void Advance()
-            {
+        void Advance()
+        {
             while (pos < spec.Length && char.IsWhiteSpace(spec[pos])) pos++;
             if (pos == spec.Length) { tok = "eof"; return; }
             var ch = spec[pos++];

@@ -522,7 +522,7 @@ public class Input
                 else if (input.Eat("!")) markerType = "prec";
                 else break;
                 var last = markers[markers.Count - 1];
-                markers[markers.Count - 1] = [..last, new ConflictMarker(localStart, ParseIdent(input), markerType)];
+                markers[markers.Count - 1] = [.. last, new ConflictMarker(localStart, ParseIdent(input), markerType)];
             }
             if (EndOfSequence(input)) break;
             exprs.Add(ParseExprSuffix(input));
