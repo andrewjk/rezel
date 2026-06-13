@@ -339,7 +339,7 @@ public static class TreeBuilding
                     {
                         if (fork.Size == SpecialRecord.ContextChange || fork.Size == SpecialRecord.LookAhead)
                             localSkipped += 4;
-                        else break;
+                        else goto doneScan;
                     }
                     else if (fork.Id >= minRepeatType)
                     {
@@ -351,6 +351,7 @@ public static class TreeBuilding
                 size += nodeSize;
                 skip += localSkipped;
             }
+        doneScan:
             if (inRepeat < 0 || size == maxSize)
                 result = (size, start, skip);
             return result.Size > 4 ? result : null;

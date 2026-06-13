@@ -219,7 +219,8 @@ public sealed class Parse : IPartialParse
             var cxHash = strictCx ? stack.CurContext!.Hash : 0;
             for (var cached = Fragments.NodeAt(start); cached != null;)
             {
-                var match = Parser.NodeSet.Types[cached.Type.Id] == cached.Type
+                var typeMatch = Parser.NodeSet.Types[cached.Type.Id] == cached.Type;
+                var match = typeMatch
                     ? parser.GetGoto(stack.State, cached.Type.Id)
                     : -1;
                 if (match > -1 && cached.Length > 0 &&
@@ -449,12 +450,15 @@ public sealed class FragmentCursor
             {
                 if (start == pos)
                 {
-                    if (start < _safeFrom) return null;
+                    if (start < _safeFrom) { return null; }
                     var end = start + nextTree.Length;
                     if (end <= _safeTo)
                     {
                         var lookAhead = nextTree.Prop(NodeProps.LookAhead);
-                        if (lookAhead == null || end + lookAhead < _fragment!.To) return nextTree;
+                        if (lookAhead == null || end + lookAhead < _fragment!.To)
+                        {
+                            return nextTree;
+                        }
                     }
                 }
                 _index[last]++;
@@ -534,7 +538,9 @@ public sealed class TokenCache
                 token.Context = context;
             }
             if (token.LookAhead > token.End + Lookahead.Margin)
+            {
                 lookAhead = Math.Max(token.LookAhead, lookAhead);
+            }
 
             if (token.Value != Term.Err)
             {

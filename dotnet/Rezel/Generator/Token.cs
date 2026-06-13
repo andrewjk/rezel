@@ -288,7 +288,7 @@ public sealed class TokenState
             var start = data.Count;
             var acceptEnd = start + 3 + state.Accepting.Count * 2;
             offsets[state.Id] = start;
-            data.Add(StateMask(groupMasks));
+            data.Add(state.StateMask(groupMasks));
             data.Add(acceptEnd);
             data.Add(state.Edges.Count);
             state.Accepting.Sort((a, b) => Array.IndexOf(precedence, a.Id) - Array.IndexOf(precedence, b.Id));

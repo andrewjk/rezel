@@ -382,7 +382,7 @@ Bin { expr !plus ""+"" expr | expr !times ""*"" expr }
     static LRParser TemplateParser() => _templateParser ??= P(@"
     @top Doc { (Dir | Content | Block)* }
     Dir { ""{{"" Word ""}}"" }
-    Block { ""{%"" BlockContent { (Dir | Content)* } ""%"" }
+    Block { ""{%"" BlockContent { (Dir | Content)* } ""%}"" }
     @tokens {
       Content { ![{%]+ }
       Word { $[a-z]+ }
@@ -622,6 +622,7 @@ C { ""c"" }
                 [new ChangedRange(off, off, off, off + 3)])
         );
         Assert.AreEqual(ast1.ToString(), ast2.ToString());
+
         var sharedVal = Shared(ast1, ast2);
         Assert.IsTrue(sharedVal > 90, $"Shared was {sharedVal}, expected > 90");
     }
