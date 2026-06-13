@@ -212,7 +212,7 @@ public class GeneratorState: CustomStringConvertible {
 				offsets.append(0)
 			}
 			offsets[state.id] = start
-			data.append(stateMask(groupMasks))
+			data.append(state.stateMask(groupMasks))
 			data.append(acceptEnd)
 			data.append(state.edges.count)
 			let sorted = state.accepting.sorted { precedence.firstIndex(of: $0.id) ?? 0 < precedence.firstIndex(of: $1.id) ?? 0 }
