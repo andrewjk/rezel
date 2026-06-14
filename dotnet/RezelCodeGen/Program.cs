@@ -168,6 +168,20 @@ static string GenerateCSharp(string varName, SerializedParser serialized)
 
     lines.Add("");
 
+    if (serialized.SpecializedEntries.Count > 0)
+    {
+        foreach (var entry in serialized.SpecializedEntries)
+        {
+            if (entry is SpecializedEntry.Table tbl)
+            {
+                var tableStr = LiteralStringIntDict(tbl.Lookup);
+                lines.Add($"    private static readonly Dictionary<string, int> _specializer_{tbl.Term} = {tableStr};");
+                lines.Add($"    private static readonly Dictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> _specializer_{tbl.Term}_lookup = _specializer_{tbl.Term}.GetAlternateLookup<ReadOnlySpan<char>>();");
+            }
+        }
+        lines.Add("");
+    }
+
     lines.Add("    public static LRParserSpec MakeSpec(");
     lines.Add("        Dictionary<string, ITokenizer>? externals = null,");
     lines.Add("        NodePropSource[]? propSources = null,");
@@ -233,8 +247,7 @@ static string GenerateCSharp(string varName, SerializedParser serialized)
             switch (entry)
             {
                 case SpecializedEntry.Table tbl:
-                    var tableStr = LiteralStringIntDict(tbl.Lookup);
-                    lines.Add($"                new SpecializerSpec {{ Term = {tbl.Term}, Get = (value, _) => {tableStr}.GetValueOrDefault(value, -1) }},");
+                    lines.Add($"                new SpecializerSpec {{ Term = {tbl.Term}, Get = (value, _) => _specializer_{tbl.Term}_lookup.TryGetValue(value, out var v) ? v : -1 }},");
                     break;
                 case SpecializedEntry.ExternalEntry ext:
                     lines.Add($"                new SpecializerSpec {{ Term = {ext.Term}, External = (value, stack) => ((Func<string, Stack, int>)(externals?[\"{EscapeString(ext.Name)}\"]!)).Invoke(value, stack) }},");

@@ -50,6 +50,10 @@ public sealed class ContextTracker
 
 public sealed class Parse : IPartialParse
 {
+    private static readonly Comparison<Stack> StackScoreComparer = (a, b) => b.Score - a.Score;
+
+    private List<Stack> _stacksA = [];
+    private List<Stack> _stacksB = [];
     public List<Stack> Stacks;
     public int Recovering;
     public FragmentCursor? Fragments;
@@ -80,7 +84,8 @@ public sealed class Parse : IPartialParse
         Tokens = new TokenCache(parser, Stream);
         TopTerm = parser.Top[1];
         var from = ranges[0].From;
-        Stacks = [Stack.Start(this, parser.Top[0], from)];
+        Stacks = _stacksA;
+        _stacksA.Add(Stack.Start(this, parser.Top[0], from));
         Fragments = fragments.Length > 0 && Stream.End - from > parser.BufferLength * 4
             ? new FragmentCursor(fragments, parser.NodeSet)
             : null;
@@ -92,7 +97,8 @@ public sealed class Parse : IPartialParse
     {
         var stacks = Stacks;
         var pos = MinStackPos;
-        var newStacks = Stacks = new List<Stack>();
+        var newStacks = Stacks = ReferenceEquals(Stacks, _stacksA) ? _stacksB : _stacksA;
+        newStacks.Clear();
         List<Stack>? stopped = null;
         List<int>? stoppedTokens = null;
 
@@ -155,10 +161,15 @@ public sealed class Parse : IPartialParse
             var maxRemaining = Recovering == 1 ? 1 : Recovering * Rec.MaxRemainingPerStep;
             if (newStacks.Count > maxRemaining)
             {
-                newStacks.Sort((a, b) => b.Score - a.Score);
-                while (newStacks.Count > maxRemaining) newStacks.RemoveAt(newStacks.Count - 1);
+                newStacks.Sort(StackScoreComparer);
+                newStacks.RemoveRange(maxRemaining, newStacks.Count - maxRemaining);
             }
-            if (newStacks.Any(s => s.ReducePos > pos)) Recovering--;
+            var reducePosAbove = false;
+            for (var i = 0; i < newStacks.Count; i++)
+            {
+                if (newStacks[i].ReducePos > pos) { reducePosAbove = true; break; }
+            }
+            if (reducePosAbove) Recovering--;
         }
         else if (newStacks.Count > 1)
         {
@@ -187,7 +198,7 @@ public sealed class Parse : IPartialParse
             }
             if (newStacks.Count > Rec.MaxStackCount)
             {
-                newStacks.Sort((a, b) => b.Score - a.Score);
+                newStacks.Sort(StackScoreComparer);
                 newStacks.RemoveRange(Rec.MaxStackCount, newStacks.Count - Rec.MaxStackCount);
             }
         }
@@ -338,7 +349,7 @@ public sealed class Parse : IPartialParse
             nodeSet: Parser.NodeSet,
             topID: TopTerm,
             maxBufferLength: Parser.BufferLength,
-            reused: Reused.ToArray(),
+            reused: Reused,
             start: Ranges[0].From,
             length: stack.Pos - Ranges[0].From,
             minRepeatType: Parser.MinRepeatTerm
@@ -503,6 +514,8 @@ public sealed class TokenCache
     public CachedToken? MainToken;
     public readonly List<int> Actions = [];
     public readonly InputStream Stream;
+    private readonly CachedToken _eofToken = new();
+    private readonly CachedToken _dummyToken = new();
 
     public TokenCache(LRParser parser, InputStream stream)
     {
@@ -556,11 +569,11 @@ public sealed class TokenCache
             }
         }
 
-        while (Actions.Count > actionIndex) Actions.RemoveAt(Actions.Count - 1);
+        if (Actions.Count > actionIndex) Actions.RemoveRange(actionIndex, Actions.Count - actionIndex);
         if (lookAhead != 0) stack.SetLookAhead(lookAhead);
         if (main == null && stack.Pos == Stream.End)
         {
-            main = new CachedToken();
+            main = _eofToken;
             main.Value = stack.P.Parser.EofTerm;
             main.Start = main.End = stack.Pos;
             actionIndex = AddActions(stack, main.Value, main.End, actionIndex);
@@ -572,8 +585,9 @@ public sealed class TokenCache
     public CachedToken GetMainToken(Stack stack)
     {
         if (MainToken != null) return MainToken;
-        var main = new CachedToken();
-        var (pos, p) = (stack.Pos, stack.P);
+        var main = _dummyToken;
+        var pos = stack.Pos;
+        var p = stack.P;
         main.Start = pos;
         main.End = Math.Min(pos + 1, p.Stream.End);
         main.Value = pos == p.Stream.End ? p.Parser.EofTerm : Term.Err;
@@ -591,7 +605,7 @@ public sealed class TokenCache
             {
                 if (parser.Specialized[i] == token.Value)
                 {
-                    var result = parser.Specializers[i](Stream.Read(token.Start, token.End), stack);
+                    var result = parser.Specializers[i](Stream.ReadSpan(token.Start, token.End), stack);
                     if (result >= 0 && stack.P.Parser.Dialect.Allows(result >> 1))
                     {
                         if ((result & 1) == SpecializeConsts.Specialize) token.Value = result >> 1;
@@ -678,7 +692,7 @@ public class LRParser : Parser
     public readonly Dictionary<string, int> Dialects;
     public readonly Dictionary<int, int>? DynamicPrecedences;
     public readonly ushort[] Specialized;
-    public Func<string, Stack, int>[] Specializers;
+    public Func<ReadOnlySpan<char>, Stack, int>[] Specializers;
     public readonly int TokenPrecTable;
     public readonly Dictionary<int, string>? TermNames;
     public readonly int MaxNode;
@@ -695,10 +709,11 @@ public class LRParser : Parser
             throw new ArgumentOutOfRangeException(
                 $"Parser version ({spec.Version}) doesn't match runtime version ({File.Version})");
 
-        var nodeNames = spec.NodeNames.Split(' ');
-        MinRepeatTerm = nodeNames.Length;
+        var nodeNamesList = new List<string>(spec.NodeNames.Split(' '));
+        MinRepeatTerm = nodeNamesList.Count;
         for (var i = 0; i < spec.RepeatNodeCount; i++)
-            nodeNames = nodeNames.Append("").ToArray();
+            nodeNamesList.Add("");
+        var nodeNames = nodeNamesList.ToArray();
 
         var topTerms = spec.TopRules.Values.Select(r => r[1]).ToHashSet();
         var nodeProps = new List<(NodePropBase, object)>[nodeNames.Length];
@@ -846,6 +861,7 @@ public class LRParser : Parser
 
     public int[] NextStates(int state)
     {
+        var terms = new List<int>();
         var result = new List<int>();
         for (var i = StateSlot(state, ParseState.Actions); ; i += 3)
         {
@@ -857,8 +873,9 @@ public class LRParser : Parser
             if ((Data[i + 2] & (Action.ReduceFlag >> 16)) == 0)
             {
                 var value = Data[i + 1];
-                if (!result.Where((v, idx) => (idx & 1) == 1 && v == value).Any())
+                if (!terms.Contains(value))
                 {
+                    terms.Add(value);
                     result.Add(Data[i]);
                     result.Add(value);
                 }
@@ -984,7 +1001,7 @@ public sealed class NodePropSpec
 public sealed class SpecializerSpec
 {
     public int Term;
-    public Func<string, Stack, int>? Get;
+    public Func<ReadOnlySpan<char>, Stack, int>? Get;
     public Func<string, Stack, int>? External;
     public bool Extend;
 }
@@ -1016,12 +1033,13 @@ public sealed class SpecializerReplace
 
 internal static class SpecializerHelper
 {
-    internal static Func<string, Stack, int> GetSpecializer(SpecializerSpec spec)
+    internal static Func<ReadOnlySpan<char>, Stack, int> GetSpecializer(SpecializerSpec spec)
     {
         if (spec.External != null)
         {
             var mask = spec.Extend ? SpecializeConsts.Extend : SpecializeConsts.Specialize;
-            return (value, stack) => (spec.External(value, stack) << 1) | mask;
+            var ext = spec.External;
+            return (value, stack) => (ext(value.ToString(), stack) << 1) | mask;
         }
         return spec.Get!;
     }

@@ -239,6 +239,15 @@ public sealed class InputStream
         }
         return result;
     }
+
+    public ReadOnlySpan<char> ReadSpan(int from, int to)
+    {
+        if (from >= ChunkPos && to <= ChunkPos + Chunk.Length)
+            return Chunk.AsSpan(from - ChunkPos, to - from);
+        if (from >= _chunk2Pos && to <= _chunk2Pos + _chunk2.Length)
+            return _chunk2.AsSpan(from - _chunk2Pos, to - from);
+        return Read(from, to).AsSpan();
+    }
 }
 
 public sealed class TokenGroup : ITokenizer

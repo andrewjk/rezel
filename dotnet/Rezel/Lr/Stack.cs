@@ -58,7 +58,7 @@ public sealed class Stack
     public static Stack Start(Parse p, int state, int pos = 0)
     {
         var cx = p.Parser.Context;
-        return new Stack(p, [], state, pos, pos, 0, [], 0,
+        return new Stack(p, new List<int>(8), state, pos, pos, 0, new List<int>(16), 0,
             cx != null ? new StackContext(cx, cx.Start) : null, 0, null);
     }
 
@@ -131,7 +131,7 @@ public sealed class Stack
             var baseStateID = StackList[@base - 3];
             State = parser.GetGoto(baseStateID, type, true);
         }
-        while (StackList.Count > @base) StackList.RemoveAt(StackList.Count - 1);
+        if (StackList.Count > @base) StackList.RemoveRange(@base, StackList.Count - @base);
         ReduceContext(type, start);
     }
 
@@ -273,10 +273,15 @@ public sealed class Stack
         var off = parent.Buffer.Count;
         if (off > 0 && parent.Buffer[off - 4] == Term.Err) off -= 4;
         while (off > 0 && parent.Buffer[off - 2] > parent.ReducePos) off -= 4;
-        var buffer = parent.Buffer.GetRange(off, parent.Buffer.Count - off);
+        var bufCount = parent.Buffer.Count - off;
+        var buffer = new List<int>(bufCount + 8);
+        for (var i = off; i < parent.Buffer.Count; i++)
+            buffer.Add(parent.Buffer[i]);
         var @base = parent.BufferBase + off;
         while (parent != null && @base == parent.BufferBase) parent = parent.Parent;
-        return new Stack(P, new List<int>(StackList), State, ReducePos, Pos,
+        var stackList = new List<int>(StackList.Count + 6);
+        stackList.AddRange(StackList);
+        return new Stack(P, stackList, State, ReducePos, Pos,
             Score, buffer, @base, CurContext, LookAhead, parent);
     }
 
@@ -324,7 +329,12 @@ public sealed class Stack
                 for (var i = 0; best.Count < Recover.MaxNext << 1 && i < nextStates.Length; i += 2)
                 {
                     var s = nextStates[i + 1];
-                    if (!best.Where((v, idx) => (idx & 1) == 1 && v == s).Any())
+                    var found = false;
+                    for (var j = 1; j < best.Count; j += 2)
+                    {
+                        if (best[j] == s) { found = true; break; }
+                    }
+                    if (!found)
                     {
                         best.Add(nextStates[i]);
                         best.Add(s);

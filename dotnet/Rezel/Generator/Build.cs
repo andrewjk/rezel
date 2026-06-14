@@ -835,7 +835,7 @@ public class Builder
                 return new SpecializerSpec
                 {
                     Term = ext.Term!.Id,
-                    Get = (value, stack) => (externalFn(value, stack) << 1) | (ext.Ast.Type == "extend" ? LrSpecializeConsts.Extend : LrSpecializeConsts.Specialize),
+                    Get = (value, stack) => (externalFn(value.ToString(), stack) << 1) | (ext.Ast.Type == "extend" ? LrSpecializeConsts.Extend : LrSpecializeConsts.Specialize),
                     External = externalFn,
                     Extend = ext.Ast.Type == "extend"
                 };
@@ -843,7 +843,8 @@ public class Builder
             else
             {
                 dynamic d = v; Term token = d.Token; var tbl = (Dictionary<string, int>)d.Table;
-                return new SpecializerSpec { Term = token.Id, Get = (value, _) => tbl.TryGetValue(value, out var tid) ? tid : -1 };
+                var lookup = tbl.GetAlternateLookup<ReadOnlySpan<char>>();
+                return new SpecializerSpec { Term = token.Id, Get = (value, _) => lookup.TryGetValue(value, out var tid) ? tid : -1 };
             }
         }).ToArray();
         var nodePropSpecs = prep.NodeProps.Select(np =>
@@ -2071,9 +2072,7 @@ public static class BuildExt
                 foreach (var kvp in np.Values)
                 {
                     var ids = kvp.Value;
-                    var value = builder.KnownProps.ContainsKey(np.Prop)
-                        ? BuildHelpers.SerializePropValue(kvp.Key)
-                        : kvp.Key;
+                    var value = kvp.Key;
                     if (ids.Count == 1)
                     {
                         entries.Add(ids[0]);

@@ -26,12 +26,12 @@ public sealed class BuildData
     public int? BufferStart;
     public int? Length;
     public int? MaxBufferLength;
-    public Tree[]? Reused;
+    public IList<Tree>? Reused;
     public int? MinRepeatType;
 
     public BuildData(object buffer, NodeSet nodeSet, int topID,
         int? start = null, int? bufferStart = null, int? length = null,
-        int? maxBufferLength = null, Tree[]? reused = null, int? minRepeatType = null)
+        int? maxBufferLength = null, IList<Tree>? reused = null, int? minRepeatType = null)
     {
         Buffer = buffer;
         NodeSet = nodeSet;
@@ -83,7 +83,7 @@ public static class TreeBuilding
     public static Tree BuildTree(BuildData data)
     {
         var maxBufferLength = data.MaxBufferLength ?? Constants.DefaultBufferLength;
-        var reused = data.Reused ?? [];
+        var reused = (IList<Tree>)(data.Reused ?? Array.Empty<Tree>());
         var minRepeatType = data.MinRepeatType ?? data.NodeSet.Types.Length;
         var types = data.NodeSet.Types;
         var buildNodeSet = data.NodeSet;
