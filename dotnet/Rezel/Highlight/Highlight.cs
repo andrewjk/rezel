@@ -156,7 +156,7 @@ public static class HighlightUtil
 
     static HighlightUtil()
     {
-        RuleNodeProp = new NodeProp<Rule>(s => null, (a, b) =>
+        RuleNodeProp = new NodeProp<Rule>(s => null!, (a, b) =>
         {
             Rule? cur = null;
             Rule? root = null;

@@ -20,10 +20,10 @@ public class BuildOptions
     public string ModuleStyle { get; set; } = "es";
     public bool TypeScript { get; set; }
     public string ExportName { get; set; } = "parser";
-    public Func<string, Dictionary<string, int>, ExternalTokenizer>? ExternalTokenizerFn { get; set; }
+    public Func<string, Dictionary<string, int>, ExternalTokenizer?>? ExternalTokenizerFn { get; set; }
     public Func<string, NodePropSource>? ExternalPropSource { get; set; }
-    public Func<string, Dictionary<string, int>, Func<string, LrStack, int>>? ExternalSpecializer { get; set; }
-    public Func<string, NodePropBase>? ExternalProp { get; set; }
+    public Func<string, Dictionary<string, int>, Func<string, LrStack, int>?>? ExternalSpecializer { get; set; }
+    public Func<string, NodePropBase?>? ExternalProp { get; set; }
     public object? ContextTracker { get; set; }
 }
 
@@ -391,12 +391,12 @@ public sealed class FinishStateContext
             while (true)
             {
                 if (!b.TokenOrigins.TryGetValue(term.Name, out var orig)) break;
-                if (orig.Spec != null)
+                if (orig?.Spec != null)
                 {
                     term = orig.Spec;
                     continue;
                 }
-                if (orig.External is ExternalTokenSet extSet)
+                if (orig?.External is ExternalTokenSet extSet)
                     BuildHelpers.AddToSet(external, extSet.Ast);
                 break;
             }
@@ -551,7 +551,7 @@ public sealed class ExternalTokenGroupSpec : TokenizerSpec
     public readonly ExternalTokenDeclaration ExtAst;
 
     public ExternalTokenGroupSpec(Builder b, ExternalTokenDeclaration ast) { BuilderRef = b; ExtAst = ast; }
-    public object Create() => BuilderRef.Options.ExternalTokenizerFn!(ExtAst.Id.Name, BuilderRef.TermTable);
+    public object Create() => BuilderRef.Options.ExternalTokenizerFn!(ExtAst.Id.Name, BuilderRef.TermTable)!;
     public string CreateSource(Func<string, string, string, string> importName) => importName(ExtAst.Id.Name, ExtAst.Source, ExtAst.Id.Name);
 }
 
@@ -600,7 +600,7 @@ public class Builder
         foreach (var prop in Ast.ExternalProps)
         {
             KnownProps[prop.Id.Name] = new KnownProp(
-                options.ExternalProp != null ? options.ExternalProp(prop.Id.Name) : new NodeProp<string>(),
+                options.ExternalProp != null ? options.ExternalProp(prop.Id.Name)! : new NodeProp<string>(),
                 new PropSource(prop.ExternalID.Name, prop.Source)
             );
         }
@@ -831,7 +831,7 @@ public class Builder
         {
             if (v is ExternalSpecializer ext)
             {
-                var externalFn = Options.ExternalSpecializer!(ext.Ast.Id.Name, TermTable);
+                var externalFn = Options.ExternalSpecializer!(ext.Ast.Id.Name, TermTable)!;
                 return new SpecializerSpec
                 {
                     Term = ext.Term!.Id,
@@ -1613,7 +1613,7 @@ public sealed class MainTokenSet : TokenSet
             for (var i = 0; i < state.Actions.Count + skip.Length; i++)
             {
                 var t = i < state.Actions.Count ? state.Actions[i].Term : skip[i - state.Actions.Count];
-                if (B.TokenOrigins.TryGetValue(t.Name, out var orig) && orig.Spec != null) t = orig.Spec;
+                if (B.TokenOrigins.TryGetValue(t.Name, out var orig) && orig?.Spec != null) t = orig.Spec;
                 else if (orig?.External != null) continue;
                 BuildHelpers.AddToSet(stateTerms, t);
             }

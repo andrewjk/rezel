@@ -466,7 +466,7 @@ public sealed class FragmentCursor
                     if (end <= _safeTo)
                     {
                         var lookAhead = nextTree.Prop(NodeProps.LookAhead);
-                        if (lookAhead == null || end + lookAhead < _fragment!.To)
+                        if (lookAhead == 0 || end + lookAhead < _fragment!.To)
                         {
                             return nextTree;
                         }
@@ -966,18 +966,18 @@ public class LRParser : Parser
 public sealed class LRParserSpec
 {
     public int Version;
-    public object States;
-    public object StateData;
-    public object Goto;
-    public string NodeNames;
+    public object States = null!;
+    public object StateData = null!;
+    public object Goto = null!;
+    public string NodeNames = null!;
     public int MaxTerm;
     public int RepeatNodeCount;
     public NodePropSpec[]? NodeProps;
     public NodePropSource[]? PropSources;
     public int[]? SkippedNodes;
-    public string TokenData;
-    public object[] Tokenizers;
-    public Dictionary<string, int[]> TopRules;
+    public string TokenData = null!;
+    public object[] Tokenizers = null!;
+    public Dictionary<string, int[]> TopRules = null!;
     public ContextTracker? Context;
     public Dictionary<string, int>? Dialects;
     public Dictionary<int, int>? DynamicPrecedences;
@@ -1021,14 +1021,14 @@ public sealed class ParserConfig
 
 public sealed class ExternalTokenizerReplace
 {
-    public ExternalTokenizer From;
-    public ExternalTokenizer To;
+    public ExternalTokenizer From = null!;
+    public ExternalTokenizer To = null!;
 }
 
 public sealed class SpecializerReplace
 {
-    public Func<string, Stack, int> From;
-    public Func<string, Stack, int> To;
+    public Func<string, Stack, int> From = null!;
+    public Func<string, Stack, int> To = null!;
 }
 
 internal static class SpecializerHelper

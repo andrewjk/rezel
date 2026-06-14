@@ -25,7 +25,7 @@ public sealed class NodeProp<T> : NodePropBase
     public readonly Func<string, T> Deserialize;
 
     public NodeProp(Func<string, T> deserialize, Func<T, T, T>? combine = null, bool perNode = false)
-        : base(perNode, combine != null ? (a, b) => combine((T)a, (T)b) : null)
+        : base(perNode, combine != null ? (a, b) => combine((T)a, (T)b)! : null)
     {
         Deserialize = deserialize;
     }
