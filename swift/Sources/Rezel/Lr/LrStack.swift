@@ -149,8 +149,8 @@ public class Stack: CustomStringConvertible {
 			let baseStateID = stack[base - 3]
 			state = parser.getGoto(state: baseStateID, term: type, loose: true)
 		}
-		while stack.count > base {
-			stack.removeLast()
+		if stack.count > base {
+			stack.removeLast(stack.count - base)
 		}
 		reduceContext(type, start: start)
 	}
@@ -189,7 +189,7 @@ public class Stack: CustomStringConvertible {
 				}
 				if mustMove {
 					while index > 0, buffer[index - 2] > end {
-						buffer.append(0); buffer.append(0); buffer.append(0); buffer.append(0)
+						buffer.append(contentsOf: [0, 0, 0, 0])
 						buffer[index] = buffer[index - 4]
 						buffer[index + 1] = buffer[index - 3]
 						buffer[index + 2] = buffer[index - 2]

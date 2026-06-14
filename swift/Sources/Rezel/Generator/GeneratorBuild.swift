@@ -1396,14 +1396,15 @@ class Builder {
 				let isExtend = ext.ast.type == "extend"
 				specializedSpecs.append(LRParser.SpecializerSpec(
 					term: ext.term!.id,
-					get: { value, stack in (extFn(value, stack) << 1) | (isExtend ? Specialize.Extend : Specialize.Specialize) },
+					get: { value, stack in (extFn(String(value), stack) << 1) | (isExtend ? Specialize.Extend : Specialize.Specialize) },
 					external: extFn,
 					extend: isExtend
 				))
 			} else if let entry = v as? SpecializeTableEntry {
+				let table = entry.table
 				specializedSpecs.append(LRParser.SpecializerSpec(
 					term: entry.token.id,
-					get: { value, _ in entry.table[value] ?? -1 },
+					get: { value, _ in table[String(value)] ?? -1 },
 					external: nil,
 					extend: false
 				))

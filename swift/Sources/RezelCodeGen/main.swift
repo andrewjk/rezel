@@ -117,13 +117,19 @@ func generateSwift(from serialized: SerializedParser, config: GrammarConfig) -> 
 
 	if !serialized.specializedEntries.isEmpty {
 		lines.append("")
+		for entry in serialized.specializedEntries {
+			if case let .table(term, table) = entry {
+				let tableLiteral = literalStringIntDict(table)
+				lines.append("    static let specTable_\(term): [String: Int] = \(tableLiteral)")
+			}
+		}
+		lines.append("")
 		lines.append("    static func buildSpecialized(_ externalSpecs: [String: (String, Stack) -> Int]) -> [LRParser.SpecializerSpec]? {")
 		lines.append("        var result: [LRParser.SpecializerSpec] = []")
 		for entry in serialized.specializedEntries {
 			switch entry {
-			case let .table(term, table):
-				let tableLiteral = literalStringIntDict(table)
-				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: { value, _ in \(tableLiteral)[value] ?? -1 }, external: nil as ((String, Stack) -> Int)?, extend: false))")
+			case .table(let term, _):
+				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: { value, _ in specTable_\(term)[value] ?? -1 }, external: nil as ((String, Stack) -> Int)?, extend: false))")
 			case let .external(term, name):
 				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: externalSpecs[\"\(name)\"], external: externalSpecs[\"\(name)\"], extend: false))")
 			}

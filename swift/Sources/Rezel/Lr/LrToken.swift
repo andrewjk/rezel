@@ -12,16 +12,11 @@ public class CachedToken {
 
 private nonisolated(unsafe) let nullToken = CachedToken()
 
-public class InputStream {
-	public var chunk: String = "" {
-		didSet { chunkUtf16 = Array(chunk.utf16) }
-	}
-
+	public class InputStream {
+	public var chunk: String = ""
 	public var chunkOff: Int = 0
 	public var chunkPos: Int
-	private var chunk2: String = "" {
-		didSet { chunk2Utf16 = Array(chunk2.utf16) }
-	}
+	private var chunk2: String = ""
 
 	private var chunk2Pos: Int = 0
 	private var chunkUtf16: [UInt16] = []
@@ -98,10 +93,12 @@ public class InputStream {
 					r = ranges[i]
 				}
 				chunk2 = input.chunk(from: pos)
+				chunk2Utf16 = Array(chunk2.utf16)
 				chunk2Pos = pos
 				if pos + chunk2Utf16.count > r.to {
 					let endIdx = chunk2.utf16.index(chunk2.startIndex, offsetBy: r.to - pos)
 					chunk2 = String(chunk2[chunk2.startIndex ..< endIdx])
+					chunk2Utf16 = Array(chunk2.utf16)
 				}
 				result = chunk2Utf16.count > 0 ? Int(chunk2Utf16[0]) : -1
 			}
@@ -134,13 +131,17 @@ public class InputStream {
 		if pos >= chunk2Pos, pos < chunk2Pos + chunk2Utf16.count {
 			let oldChunk = chunk
 			let oldChunkPos = chunkPos
+			let oldChunkUtf16 = chunkUtf16
 			chunk = chunk2
+			chunkUtf16 = chunk2Utf16
 			chunkPos = chunk2Pos
 			chunk2 = oldChunk
+			chunk2Utf16 = oldChunkUtf16
 			chunk2Pos = oldChunkPos
 			chunkOff = pos - chunkPos
 		} else {
 			chunk2 = chunk
+			chunk2Utf16 = chunkUtf16
 			chunk2Pos = chunkPos
 			var nextChunk = input.chunk(from: pos)
 			let endPos = pos + nextChunk.utf16.count
@@ -149,6 +150,7 @@ public class InputStream {
 				nextChunk = String(nextChunk[nextChunk.startIndex ..< endIdx])
 			}
 			chunk = nextChunk
+			chunkUtf16 = Array(nextChunk.utf16)
 			chunkPos = pos
 			chunkOff = 0
 		}
@@ -185,6 +187,7 @@ public class InputStream {
 		range = ranges[ranges.count - 1]
 		rangeIndex = ranges.count - 1
 		chunk = ""
+		chunkUtf16 = []
 		next = -1
 		return next
 	}
@@ -219,6 +222,7 @@ public class InputStream {
 				chunkOff = pos - chunkPos
 			} else {
 				chunk = ""
+				chunkUtf16 = []
 				chunkOff = 0
 			}
 			_ = readNext()
@@ -248,6 +252,20 @@ public class InputStream {
 			}
 		}
 		return result
+	}
+
+	public func readSubstring(from: Int, to: Int) -> Substring {
+		if from >= chunkPos && to <= chunkPos + chunkUtf16.count {
+			let startIdx = chunk.utf16.index(chunk.startIndex, offsetBy: from - chunkPos)
+			let endIdx = chunk.utf16.index(chunk.startIndex, offsetBy: to - chunkPos)
+			return chunk[startIdx ..< endIdx]
+		}
+		if from >= chunk2Pos && to <= chunk2Pos + chunk2Utf16.count {
+			let startIdx = chunk2.utf16.index(chunk2.startIndex, offsetBy: from - chunk2Pos)
+			let endIdx = chunk2.utf16.index(chunk2.startIndex, offsetBy: to - chunk2Pos)
+			return chunk2[startIdx ..< endIdx]
+		}
+		return read(from: from, to: to)[...]
 	}
 }
 

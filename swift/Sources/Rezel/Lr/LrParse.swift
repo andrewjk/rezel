@@ -212,7 +212,7 @@ class TokenCache {
 			let parser = stack.p.parser
 			for i in 0 ..< parser.specialized.count {
 				if parser.specialized[i] == token.value {
-					let result = parser.specializers[i](stream.read(from: token.start, to: token.end), stack)
+					let result = parser.specializers[i](stream.readSubstring(from: token.start, to: token.end), stack)
 					if result >= 0, stack.p.parser.dialect.allows(term: result >> 1) {
 						if (result & 1) == Specialize.Specialize {
 							token.value = result >> 1
@@ -499,8 +499,9 @@ public class LrParse: PartialParse {
 
 	private func advanceFully(_ stack: inout Stack, newStacks: inout [Stack]) -> Bool {
 		let pos = stack.pos
+		var splitStacks: [Stack] = []
 		while true {
-			var splitStacks: [Stack] = []
+			splitStacks.removeAll(keepingCapacity: true)
 			if !advanceStack(&stack, stacks: &newStacks, split: &splitStacks) { return false }
 			newStacks.append(contentsOf: splitStacks)
 			if stack.pos > pos {
@@ -647,7 +648,7 @@ public class LRParser: Parser {
 	public let dialects: [String: Int]
 	public let dynamicPrecedences: [Int: Int]?
 	public var specialized: [UInt16]
-	public var specializers: [(String, Stack) -> Int]
+	public var specializers: [(Substring, Stack) -> Int]
 	public var specializerSpecs: [SpecializerSpec]
 	public let tokenPrecTable: Int
 	public let termNames: [Int: String]?
@@ -687,7 +688,7 @@ public class LRParser: Parser {
 
 	public struct SpecializerSpec {
 		public let term: Int
-		public let get: ((String, Stack) -> Int)?
+		public let get: ((Substring, Stack) -> Int)?
 		public let external: ((String, Stack) -> Int)?
 		public let extend: Bool
 	}
@@ -1095,12 +1096,20 @@ public class LRParser: Parser {
 	}
 }
 
-func lrGetSpecializer(_ spec: LRParser.SpecializerSpec) -> (String, Stack) -> Int {
+func lrGetSpecializer(_ spec: LRParser.SpecializerSpec) -> (Substring, Stack) -> Int {
 	if let external = spec.external {
 		let mask = spec.extend ? Specialize.Extend : Specialize.Specialize
 		return { value, stack in
-			(external(value, stack) << 1) | mask
+			(external(String(value), stack) << 1) | mask
 		}
 	}
 	return spec.get!
+}
+
+func subDict(_ pairs: (String, Int)...) -> [Substring: Int] {
+	var d = Dictionary<Substring, Int>(minimumCapacity: pairs.count)
+	for (k, v) in pairs {
+		d[k[...]] = v
+	}
+	return d
 }

@@ -27,6 +27,10 @@ let package = Package(
 			name: "RezelTests",
 			dependencies: ["Rezel"]
 		),
+		.executableTarget(
+			name: "Bench",
+			dependencies: ["Rezel"]
+		),
 	],
 	swiftLanguageModes: [.v6]
 )

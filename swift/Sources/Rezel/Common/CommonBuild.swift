@@ -165,7 +165,9 @@ func buildTree(data: BuildData) -> Tree {
 			let endPos = cursor.pos - size
 			cursor.next()
 			var localChildren: [Any] = []
+			localChildren.reserveCapacity(8)
 			var localPositions: [Int] = []
+			localPositions.reserveCapacity(8)
 			let localInRepeat = id >= minRepeatType ? id : -1
 			var lastGroup = 0
 			var lastEnd = end
@@ -383,7 +385,9 @@ func buildTree(data: BuildData) -> Tree {
 	}
 
 	var children: [Any] = []
+	children.reserveCapacity(32)
 	var positions: [Int] = []
+	positions.reserveCapacity(32)
 	while cursor.pos > 0 {
 		takeNode(
 			parentStart: data.start ?? 0, minPos: data.bufferStart ?? 0,
