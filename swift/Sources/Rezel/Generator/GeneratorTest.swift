@@ -145,7 +145,8 @@ public class TestSpec {
 }
 
 public func defaultIgnore(_ type: NodeType) -> Bool {
-	type.name.unicodeScalars.allSatisfy { !CharacterSet.alphanumerics.contains($0) }
+	let wordChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_"))
+	return type.name.unicodeScalars.contains { !wordChars.contains($0) }
 }
 
 private func toLineContext(_ file: String, _ index: Int) -> String {
@@ -179,9 +180,10 @@ public func fileTests(_ file: String, _ fileName: String) throws -> [(name: Stri
 		      let textRange = Range(m.range(at: 2), in: file),
 		      let expectedRange = Range(m.range(at: 3), in: file) else { continue }
 
-		let rawName = String(file[nameRange]).trimmingCharacters(in: .whitespaces)
-		let text = String(file[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-		let expected = String(file[expectedRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+		let trimWS = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}"))
+		let rawName = String(file[nameRange]).trimmingCharacters(in: trimWS)
+		let text = String(file[textRange]).trimmingCharacters(in: trimWS)
+		let expected = String(file[expectedRange]).trimmingCharacters(in: trimWS)
 
 		var name = rawName
 		var config: [String: Any]? = nil
@@ -190,7 +192,7 @@ public func fileTests(_ file: String, _ fileName: String) throws -> [(name: Stri
 		   let range = configRegex.firstMatch(in: rawName, range: NSRange(rawName.startIndex..., in: rawName))?.range
 		{
 			let configStr = (rawName as NSString).substring(with: range)
-			name = (rawName as NSString).substring(to: range.location).trimmingCharacters(in: .whitespaces)
+			name = (rawName as NSString).substring(to: range.location).trimmingCharacters(in: trimWS)
 			if let data = configStr.data(using: .utf8),
 			   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
 			{
@@ -198,12 +200,15 @@ public func fileTests(_ file: String, _ fileName: String) throws -> [(name: Stri
 			}
 		}
 
+		let strict = expected.range(of: "⚠|\\.\\.\\.", options: .regularExpression) == nil
+
 		tests.append((name: name, text: text, expected: expected, run: { parser in
 			let p: Parser
-			if let lrp = parser as? LRParser, config != nil {
+			if let lrp = parser as? LRParser {
 				p = lrp.configure(
 					top: config?["top"] as? String,
-					dialect: config?["dialect"] as? String
+					dialect: config?["dialect"] as? String,
+					strict: strict
 				)
 			} else {
 				p = parser
@@ -215,7 +220,8 @@ public func fileTests(_ file: String, _ fileName: String) throws -> [(name: Stri
 	}
 	if lastIndex != file.count {
 		let endOfContent = file.index(file.startIndex, offsetBy: min(lastIndex, file.count))
-		let trailing = file[endOfContent...].trimmingCharacters(in: .whitespacesAndNewlines)
+		let trimWS = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}"))
+		let trailing = file[endOfContent...].trimmingCharacters(in: trimWS)
 		if !trailing.isEmpty {
 			throw NSError(domain: "fileTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unexpected file format in \(fileName) around\n\n\(toLineContext(file, min(lastIndex, file.count - 1)))"])
 		}

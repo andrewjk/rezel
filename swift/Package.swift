@@ -17,7 +17,21 @@ let package = Package(
 		// Targets can depend on other targets in this package and products from dependencies.
 		.target(
 			name: "Rezel",
-			exclude: ["Grammars/javascript.grammar", "Grammars/javascript.grammar-config", "Grammars/json.grammar", "Grammars/json.grammar-config", "Grammars/html.grammar", "Grammars/html.grammar-config"]
+			exclude: [
+				"Grammars/javascript.grammar", "Grammars/javascript.grammar-config",
+				"Grammars/json.grammar", "Grammars/json.grammar-config",
+				"Grammars/html.grammar", "Grammars/html.grammar-config",
+				"Grammars/cpp.grammar", "Grammars/cpp.grammar-config",
+				"Grammars/css.grammar", "Grammars/css.grammar-config",
+				"Grammars/go.grammar", "Grammars/go.grammar-config",
+				"Grammars/java.grammar", "Grammars/java.grammar-config",
+				"Grammars/php.grammar", "Grammars/php.grammar-config",
+				"Grammars/python.grammar", "Grammars/python.grammar-config",
+				"Grammars/rust.grammar", "Grammars/rust.grammar-config",
+				"Grammars/sass.grammar", "Grammars/sass.grammar-config",
+				"Grammars/xml.grammar", "Grammars/xml.grammar-config",
+				"Grammars/yaml.grammar", "Grammars/yaml.grammar-config",
+			]
 		),
 		.executableTarget(
 			name: "RezelCodeGen",

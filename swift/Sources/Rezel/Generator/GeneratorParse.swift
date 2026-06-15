@@ -320,18 +320,67 @@ private func parseExprInner(_ input: GenInput) -> Expression {
 		let content = input.value as! String
 		let str = input.string
 		let invert = str[str.index(str.startIndex, offsetBy: input.start)] == "!"
-		let unescaped = readString(content)
 		var ranges: [(Int, Int)] = []
-		let scalars = unescaped.unicodeScalars
+		let scalars = content.unicodeScalars
 		var i = scalars.startIndex
+
+		func readSetChar() -> Int? {
+			guard i < scalars.endIndex else { return nil }
+			if scalars[i] == "\\" {
+				i = scalars.index(after: i)
+				guard i < scalars.endIndex else { return nil }
+				let esc = scalars[i]
+				i = scalars.index(after: i)
+				switch esc {
+				case "n": return 10
+				case "t": return 9
+				case "r": return 13
+				case "f": return 12
+				case "b": return 8
+				case "0": return 0
+				case "u":
+					if i < scalars.endIndex && scalars[i] == "{" {
+						let start = scalars.index(after: i)
+						var end = start
+						while end < scalars.endIndex && scalars[end] != "}" {
+							end = scalars.index(after: end)
+						}
+						let hex = String(String.UnicodeScalarView(scalars[start ..< end]))
+						if end < scalars.endIndex { i = scalars.index(after: end) }
+						return Int(hex, radix: 16) ?? Int(esc.value)
+					} else if scalars.distance(from: i, to: scalars.endIndex) >= 4 {
+						let hex = String(String.UnicodeScalarView(scalars[i ..< scalars.index(i, offsetBy: 4)]))
+						i = scalars.index(i, offsetBy: 4)
+						return Int(hex, radix: 16) ?? Int(esc.value)
+					}
+					return Int(esc.value)
+				case "x":
+					if scalars.distance(from: i, to: scalars.endIndex) >= 2 {
+						let hex = String(String.UnicodeScalarView(scalars[i ..< scalars.index(i, offsetBy: 2)]))
+						i = scalars.index(i, offsetBy: 2)
+						return Int(hex, radix: 16) ?? Int(esc.value)
+					}
+					return Int(esc.value)
+				default: return Int(esc.value)
+				}
+			} else {
+				let code = Int(scalars[i].value)
+				i = scalars.index(after: i)
+				return code
+			}
+		}
+
 		while i < scalars.endIndex {
-			let code = Int(scalars[i].value)
-			i = scalars.index(after: i)
+			guard let code = readSetChar() else { break }
 			if i < scalars.endIndex && scalars[i] == "-" {
-				let nextIdx = scalars.index(after: i)
-				if nextIdx < scalars.endIndex {
-					let endCode = Int(scalars[nextIdx].value)
-					i = scalars.index(after: nextIdx)
+				let dashNext = scalars.index(after: i)
+				if dashNext < scalars.endIndex {
+					i = dashNext
+					guard let endCode = readSetChar() else {
+						addRange(input, &ranges, code, code + 1)
+						addRange(input, &ranges, 45, 46)
+						continue
+					}
 					if endCode < code { input.raise("Invalid character range", input.start) }
 					addRange(input, &ranges, code, endCode + 1)
 					continue

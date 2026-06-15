@@ -1107,7 +1107,7 @@ func lrGetSpecializer(_ spec: LRParser.SpecializerSpec) -> (Substring, Stack) ->
 }
 
 func subDict(_ pairs: (String, Int)...) -> [Substring: Int] {
-	var d = Dictionary<Substring, Int>(minimumCapacity: pairs.count)
+	var d = [Substring: Int](minimumCapacity: pairs.count)
 	for (k, v) in pairs {
 		d[k[...]] = v
 	}

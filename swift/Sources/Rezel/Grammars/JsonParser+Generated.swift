@@ -11,7 +11,7 @@ enum JsonParserData {
 
 	static let stateData = "#O~OeOS~OQSORSOSSOTSOWQO_ROgPO~OVXOgUO~O^[O~PVO[^O~O]_OVhX~OVaO~O]bO^iX~O^dO~O]_OVha~O]bO^ia~O"
 
-	static let goto = "!kjPPPPPPkPPkqwPPPPk{!RPPP!XP!e!hXSOR^bQWQRf_TVQ_Q`WRg`QcZRicQe^QTOQZRRhbRYQR]R"
+	static let goto = "!kjPPPPPPkPPkqwPPPPk{!RPPP!XP!e!hXSOR^bQWQRf_TVQ_Q`WRg`QcZRicQTOQZRQe^RhbRYQR]R"
 
 	static let nodeNames = "⚠ JsonText True False Null Number String } { Object Property PropertyName : , ] [ Array"
 
@@ -27,10 +27,10 @@ enum JsonParserData {
 			result.append([prop] as [Any] + [-2, 6, 11, ""])
 		}
 		if let prop = allProps["openedBy"] {
-			result.append([prop] as [Any] + [14, "[", 7, "{"])
+			result.append([prop] as [Any] + [7, "{", 14, "["])
 		}
 		if let prop = allProps["closedBy"] {
-			result.append([prop] as [Any] + [15, "]", 8, "}"])
+			result.append([prop] as [Any] + [8, "}", 15, "]"])
 		}
 		return result.isEmpty ? nil : result
 	}
@@ -42,7 +42,7 @@ enum JsonParserData {
 	static let tokenPrec = 0
 
 	static let topRules: [String: [Int]] = ["JsonText": [0, 1]]
-	static let termNames: [Int: String] = [9: "Object", 10: "Property", 7: "\"}\"", 16: "Array", 24: "list<Property>", 15: "\"[\"", 11: "PropertyName", 2: "True", 18: "(\",\" value)+", 21: "whitespace", 4: "Null", 8: "\"{\"", 14: "\"]\"", 13: "\",\"", 25: "list<value>", 20: "%mainskip", 6: "String", 19: "␄", 17: "(\",\" Property)+", 0: "⚠", 5: "Number", 22: "value", 23: "string", 3: "False", 1: "@top", 12: "\":\""]
+	static let termNames: [Int: String] = [10: "Property", 2: "True", 6: "String", 25: "list<value>", 19: "␄", 21: "whitespace", 12: "\":\"", 20: "%mainskip", 9: "Object", 0: "⚠", 1: "@top", 22: "value", 23: "string", 16: "Array", 3: "False", 8: "\"{\"", 7: "\"}\"", 13: "\",\"", 5: "Number", 11: "PropertyName", 15: "\"[\"", 24: "list<Property>", 18: "(\",\" value)+", 4: "Null", 17: "(\",\" Property)+", 14: "\"]\""]
 	nonisolated(unsafe) static var termTable: [String: Int] = Dictionary(termNames.map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
 
 	static func buildTokenizers(_: [String: TokenizerProtocol]) -> [Any] {

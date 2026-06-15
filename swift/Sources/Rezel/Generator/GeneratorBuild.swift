@@ -2205,7 +2205,7 @@ func computeGotoTable(_ states: [AutState]) -> [UInt16] {
 			continue
 		}
 		var termTable: [Int] = []
-		let keys = Array(entries.keys)
+		let keys = Array(entries.keys).sorted()
 		for (ki, target) in keys.enumerated() {
 			let list = entries[target]!
 			termTable.append((ki == keys.count - 1 ? 1 : 0) + (list.count << 1))

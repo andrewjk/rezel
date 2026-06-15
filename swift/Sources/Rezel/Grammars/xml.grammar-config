@@ -1,0 +1,4 @@
+{
+  "grammarFile": "xml.grammar",
+  "outputVarName": "XmlParser"
+}

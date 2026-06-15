@@ -1,0 +1,4 @@
+{
+  "grammarFile": "cpp.grammar",
+  "outputVarName": "CppParser"
+}

@@ -12,7 +12,7 @@ public class CachedToken {
 
 private nonisolated(unsafe) let nullToken = CachedToken()
 
-	public class InputStream {
+public class InputStream {
 	public var chunk: String = ""
 	public var chunkOff: Int = 0
 	public var chunkPos: Int

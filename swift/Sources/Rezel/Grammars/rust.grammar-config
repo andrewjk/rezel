@@ -1,0 +1,4 @@
+{
+  "grammarFile": "rust.grammar",
+  "outputVarName": "RustParser"
+}

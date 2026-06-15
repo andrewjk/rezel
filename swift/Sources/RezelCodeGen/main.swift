@@ -128,10 +128,10 @@ func generateSwift(from serialized: SerializedParser, config: GrammarConfig) -> 
 		lines.append("        var result: [LRParser.SpecializerSpec] = []")
 		for entry in serialized.specializedEntries {
 			switch entry {
-			case .table(let term, _):
-				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: { value, _ in specTable_\(term)[value] ?? -1 }, external: nil as ((String, Stack) -> Int)?, extend: false))")
+			case let .table(term, _):
+				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: { value, _ in specTable_\(term)[String(value)] ?? -1 }, external: nil as ((String, Stack) -> Int)?, extend: false))")
 			case let .external(term, name):
-				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: externalSpecs[\"\(name)\"], external: externalSpecs[\"\(name)\"], extend: false))")
+				lines.append("        result.append(LRParser.SpecializerSpec(term: \(term), get: { value, stack in externalSpecs[\"\(name)\"]?(String(value), stack) ?? -1 }, external: externalSpecs[\"\(name)\"], extend: false))")
 			}
 		}
 		lines.append("        return result")

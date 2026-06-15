@@ -189,7 +189,9 @@ public class Stack: CustomStringConvertible {
 				}
 				if mustMove {
 					while index > 0, buffer[index - 2] > end {
-						buffer.append(contentsOf: [0, 0, 0, 0])
+						if index >= buffer.count {
+							buffer.append(contentsOf: [0, 0, 0, 0])
+						}
 						buffer[index] = buffer[index - 4]
 						buffer[index + 1] = buffer[index - 3]
 						buffer[index + 2] = buffer[index - 2]
@@ -296,8 +298,8 @@ public class Stack: CustomStringConvertible {
 	public func canShift(_ term: Int) -> Bool {
 		let sim = SimulatedStack(start: self)
 		while true {
-			let action = p.parser.stateSlot(sim.state, slot: ParseState.DefaultReduce) |
-				p.parser.hasAction(state: sim.state, terminal: term)
+			let dr = p.parser.stateSlot(sim.state, slot: ParseState.DefaultReduce)
+			let action = dr != 0 ? dr : p.parser.hasAction(state: sim.state, terminal: term)
 			if action == 0 { return false }
 			if (action & Action.ReduceFlag) == 0 { return true }
 			sim.reduce(action)
