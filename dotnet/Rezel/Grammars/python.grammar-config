@@ -1,0 +1,4 @@
+{
+  "grammarFile": "python.grammar",
+  "outputVarName": "PythonParser"
+}

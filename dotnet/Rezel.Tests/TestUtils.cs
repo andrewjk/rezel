@@ -174,7 +174,7 @@ public static class TestUtils
 {
     public static bool DefaultIgnore(NodeType type)
     {
-        return type.Name.All(c => !char.IsLetterOrDigit(c));
+        return type.Name.Any(c => !char.IsLetterOrDigit(c) && c != '_');
     }
 
     public static void TestTree(Tree tree, string expect, Func<NodeType, bool>? mayIgnore = null)
@@ -270,7 +270,7 @@ public static class TestUtils
                     $"Unexpected file format in {fileName} around\n\n{ToLineContext(file, lastIndex)}");
             }
 
-            var text = m.Groups[2].Value.Trim();
+            var text = m.Groups[2].Value.Trim().Trim('\ufeff');
             var expected = m.Groups[3].Value.Trim();
             var nameRaw = m.Groups[1].Value.Trim();
             var nameConfig = Regex.Match(nameRaw, @"(.*?)(\{.*?\})?$");

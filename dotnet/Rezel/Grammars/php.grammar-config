@@ -1,0 +1,4 @@
+{
+  "grammarFile": "php.grammar",
+  "outputVarName": "PhpParser"
+}

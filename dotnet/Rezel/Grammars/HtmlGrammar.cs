@@ -362,7 +362,7 @@ public static class HtmlGrammar
         ["Text RawText IncompleteTag IncompleteCloseTag"] = Tags.Content,
         ["StartTag StartCloseTag SelfClosingEndTag EndTag"] = Tags.Bracket,
         ["TagName"] = Tags.TypeName,
-        ["MismatchedCloseTag/TagName"] = new object[] { Tags.TypeName, Tags.Invalid },
+        ["MismatchedCloseTag/TagName"] = new[] { Tags.TypeName, Tags.Invalid },
         ["AttributeName"] = Tags.PropertyName,
         ["AttributeValue UnquotedAttributeValue"] = Tags.AttributeValue,
         ["Is"] = Tags.DefinitionKeyword,

@@ -12,7 +12,7 @@ public sealed class StackContext
     {
         Tracker = tracker;
         Context = context;
-        Hash = tracker.Strict ? tracker.Hash(context) : 0;
+        Hash = tracker.Hash(context!);
     }
 }
 

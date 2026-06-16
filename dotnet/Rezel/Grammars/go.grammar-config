@@ -1,0 +1,4 @@
+{
+  "grammarFile": "go.grammar",
+  "outputVarName": "GoParser"
+}

@@ -1,0 +1,4 @@
+{
+  "grammarFile": "css.grammar",
+  "outputVarName": "CssParser"
+}

@@ -1,0 +1,4 @@
+{
+  "grammarFile": "sass.grammar",
+  "outputVarName": "SassParser"
+}

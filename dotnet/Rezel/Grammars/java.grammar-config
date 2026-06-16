@@ -1,0 +1,4 @@
+{
+  "grammarFile": "java.grammar",
+  "outputVarName": "JavaParser"
+}

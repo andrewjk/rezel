@@ -1,0 +1,4 @@
+{
+  "grammarFile": "yaml.grammar",
+  "outputVarName": "YamlParser"
+}
