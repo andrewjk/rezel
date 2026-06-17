@@ -1,0 +1,144 @@
+# using directive
+using System;
+==>
+Program(Keyword,TypeIdentifier,";")
+
+# using alias
+using Alias = Namespace.Type;
+==>
+Program(Keyword,TypeIdentifier,"=",TypeIdentifier,".",TypeIdentifier,";")
+
+# namespace declaration
+namespace Foo { }
+==>
+Program(Keyword,TypeIdentifier,Delim("{","}"))
+
+# nested namespace
+namespace Foo { class Bar { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",Keyword,TypeIdentifier,Delim("{","}"),"}"))
+
+# empty class
+class Point { }
+==>
+Program(Keyword,TypeIdentifier,Delim("{","}"))
+
+# public class
+public class Point { }
+==>
+Program(Keyword,Keyword,TypeIdentifier,Delim("{","}"))
+
+# abstract class
+abstract class Shape { }
+==>
+Program(Keyword,Keyword,TypeIdentifier,Delim("{","}"))
+
+# sealed class
+sealed class FinalShape { }
+==>
+Program(Keyword,Keyword,TypeIdentifier,Delim("{","}"))
+
+# class with base
+class Point : Shape { }
+==>
+Program(Keyword,TypeIdentifier,":",TypeIdentifier,Delim("{","}"))
+
+# class with interface
+class Dog : ISpeak { }
+==>
+Program(Keyword,TypeIdentifier,":",TypeIdentifier,Delim("{","}"))
+
+# interface
+interface IFoo { }
+==>
+Program(Keyword,TypeIdentifier,Delim("{","}"))
+
+# interface with method
+interface IFoo { void Bar(); }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),";","}"))
+
+# struct
+struct Vector { int x; int y; }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,VarName,";",SimpleType,⚠,VarName,";","}"))
+
+# enum
+enum Color { Red, Green, Blue }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",ConstName,",",ConstName,",",ConstName,"}"))
+
+# void method
+class A { void Foo() { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{","}"),"}"))
+
+# method with params
+class A { void Foo(int x, string y) { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",SimpleType,⚠,ParamName,",",SimpleType,⚠,ParamName,")"),Delim("{","}"),"}"))
+
+# method with return
+class A { int Foo() { return 1; } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,IntegerLiteral,";","}"),"}"))
+
+# static method
+class A { static void Foo() { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",Keyword,SimpleType,⚠,MethodName,Delim("(",")"),Delim("{","}"),"}"))
+
+# property
+class A { int X { get; set; } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,PropertyName,Delim("{",Keyword,";",Keyword,";","}"),"}"))
+
+# expression-bodied
+class A { int X => 1; }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,PropertyName,"=>",IntegerLiteral,";","}"))
+
+# int field
+class A { int x; }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,VarName,";","}"))
+
+# const field
+class A { const int x = 5; }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",Keyword,SimpleType,⚠,ConstName,"=",IntegerLiteral,";","}"))
+
+# static field
+class A { static int x; }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",Keyword,SimpleType,⚠,VarName,";","}"))
+
+# constructor
+class A { A() { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",TypeIdentifier,Delim("(",")"),⚠,Delim("{","}"),"}"))
+
+# constructor with params
+class A { A(int x) { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",TypeIdentifier,Delim("(",SimpleType,⚠,ParamName,")"),⚠,Delim("{","}"),"}"))
+
+# delegate
+delegate void MyDelegate(int x);
+==>
+Program(Keyword,SimpleType,⚠,TypeIdentifier,Delim("(",SimpleType,⚠,ParamName,")"),";")
+
+# attribute
+[Obsolete] class OldClass { }
+==>
+Program(Delim("[",TypeIdentifier,"]"),Keyword,TypeIdentifier,Delim("{","}"))
+
+# generic class
+class Box<T> { T value; }
+==>
+Program(Keyword,TypeIdentifier,"<",TypeIdentifier,">",Delim("{",TypeIdentifier,⚠,VarName,";","}"))
+
+# generic method
+class A { void Foo<T>(T x) { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,"<",TypeIdentifier,">",Delim("(",TypeIdentifier,⚠,ParamName,")"),Delim("{","}"),"}"))

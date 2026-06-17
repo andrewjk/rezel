@@ -1,0 +1,39 @@
+# pointer type
+const p: *i32 = &x;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name,TypeExpr(PrefixTypeOp(PtrTypeStart),Identifier)),Expr(PrefixExpr(PrefixOp,TypeExpr(Identifier))))))
+
+# optional type
+const x: ?i32 = null;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name,TypeExpr(PrefixTypeOp,Identifier)),Expr(TypeExpr(Identifier)))))
+
+# array type
+const arr: [3]i32 = .{ 1, 2, 3 };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name,TypeExpr(PrefixTypeOp(ArrayTypeStart(Expr(TypeExpr(Integer)))),Identifier)),Expr(TypeExpr(InitList("{",Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),"}"))))))
+
+# slice type
+const s: []const u8 = "hello";
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name,TypeExpr(PrefixTypeOp(SliceTypeStart,const),Identifier)),Expr(TypeExpr(StringLiteral)))))
+
+# error union
+fn foo() !i32 { return error.Foo; }
+==>
+Program(Decl(FnProto(fn,Identifier,ParamDeclList("(",")"),TypeExpr(Identifier)),Block("{",Statement(Expr(return,Expr(TypeExpr(error,Identifier)))),"}")))
+
+# defer
+defer cleanup();
+==>
+Program(⚠(defer),ContainerField(TypeExpr(Identifier,FnCallArgs("(",")")),⚠))
+
+# errdefer
+errdefer cleanup();
+==>
+Program(⚠(errdefer),ContainerField(TypeExpr(Identifier,FnCallArgs("(",")")),⚠))
+
+# comptime
+comptime { _ = @TypeOf(x); }
+==>
+Program(ComptimeDecl(comptime,Block("{",Statement(Expr(TypeExpr(Identifier)),AssignOp,Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")")))),"}")))

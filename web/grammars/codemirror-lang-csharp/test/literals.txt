@@ -1,0 +1,69 @@
+# string literal
+"hello"
+==>
+Program(⚠(StringLiteral))
+
+# verbatim string
+@"hello"
+==>
+Program(⚠(StringLiteral))
+
+# char literal
+'a'
+==>
+Program(⚠(CharacterLiteral))
+
+# escape sequence
+"\n"
+==>
+Program(⚠(StringLiteral))
+
+# interpolation
+$"Hello {name}"
+==>
+Program(⚠("$\""),⚠,TypeIdentifier,Delim("{",⚠,"}"),⚠)
+
+# integer literal
+42
+==>
+Program(⚠(IntegerLiteral))
+
+# hex literal
+0xFF
+==>
+Program(⚠(IntegerLiteral))
+
+# float literal
+3.14
+==>
+Program(⚠(RealLiteral))
+
+# float scientific
+1.5e10
+==>
+Program(⚠(RealLiteral))
+
+# long literal
+42L
+==>
+Program(⚠(IntegerLiteral))
+
+# unsigned literal
+42U
+==>
+Program(⚠(IntegerLiteral))
+
+# true
+true
+==>
+Program(⚠)
+
+# false
+false
+==>
+Program(⚠)
+
+# null literal
+null
+==>
+Program(⚠)

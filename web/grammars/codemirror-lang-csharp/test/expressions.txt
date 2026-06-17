@@ -1,0 +1,124 @@
+# assignment
+x = 3;
+==>
+Program(⚠,TypeIdentifier,⚠("="),⚠(IntegerLiteral),";")
+
+# binary expression
+a + b;
+==>
+Program(⚠,TypeIdentifier,⚠("+"),⚠,";")
+
+# binary comparison
+a > b;
+==>
+Program(⚠,TypeIdentifier,⚠(">"),⚠,";")
+
+# binary logic
+a && b;
+==>
+Program(⚠,TypeIdentifier,⚠("&&"),⚠,";")
+
+# unary
+!x;
+==>
+Program(⚠(Not),⚠,TypeIdentifier,";")
+
+# postfix
+x++;
+==>
+Program(⚠,TypeIdentifier,⚠("++"),";")
+
+# prefix
+++x;
+==>
+Program(⚠("++"),⚠,TypeIdentifier,";")
+
+# if statement
+if (x) y;
+==>
+Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,⚠(")"),VarName,⚠(";")),⚠)
+
+# if else
+if (x) { y = 1; } else { y = 2; }
+==>
+Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,⚠(")"),⚠("{"),VarName,⚠("="),⚠(IntegerLiteral),⚠(";"),⚠("}"),⚠(Keyword),⚠("{"),⚠,⚠("="),⚠(IntegerLiteral),⚠(";"),⚠("}")),⚠)
+
+# while loop
+while (x < 10) { x++; }
+==>
+Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,"<",⚠(IntegerLiteral),⚠(")"),⚠("{"),TypeIdentifier,⚠("++"),⚠(";"),⚠("}")),⚠)
+
+# for loop
+for (int i = 0; i < 10; i++) { }
+==>
+Program(⚠(Keyword),⚠,Delim("(",SimpleType,⚠,VarName,⚠("="),⚠(IntegerLiteral),⚠(";")),⚠,TypeIdentifier,"<",⚠(IntegerLiteral),⚠(";"),TypeIdentifier,⚠("++"),⚠(")"),⚠("{"),⚠("}"))
+
+# foreach
+foreach (var item in list) { }
+==>
+Program(⚠(Keyword),⚠,Delim("(",⚠(Keyword),TypeIdentifier,⚠(Keyword),VarName,")"),⚠("{"),⚠("}"))
+
+# switch statement
+switch (x) { case 1: break; }
+==>
+Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,⚠(")"),⚠("{"),⚠(Keyword),⚠(IntegerLiteral),⚠(":"),⚠(Keyword),⚠(";"),⚠("}")),⚠)
+
+# return statement
+return x;
+==>
+Program(⚠(Keyword),⚠,TypeIdentifier,";")
+
+# break statement
+break;
+==>
+Program(⚠(Keyword),⚠(";"))
+
+# continue statement
+continue;
+==>
+Program(⚠(Keyword),⚠(";"))
+
+# throw statement
+throw new Exception();
+==>
+Program(⚠(Keyword),Keyword,⚠,⚠("("),⚠(")"),⚠(";"))
+
+# try catch
+try { x(); } catch { }
+==>
+Program(⚠(Keyword),⚠("{"),Delim(⚠,TypeIdentifier,Delim("(",")"),⚠(";"),⚠("}"),⚠(Keyword),⚠("{"),⚠("}")),⚠)
+
+# try finally
+try { x(); } finally { }
+==>
+Program(⚠(Keyword),⚠("{"),Delim(⚠,TypeIdentifier,Delim("(",")"),⚠(";"),⚠("}"),⚠(Keyword),⚠("{"),⚠("}")),⚠)
+
+# try catch finally
+try { x(); } catch (Exception e) { } finally { }
+==>
+Program(⚠(Keyword),⚠("{"),Delim(⚠,TypeIdentifier,Delim("(",")"),⚠(";"),⚠("}"),⚠(Keyword),⚠("("),⚠,⚠(")"),⚠("{"),⚠("}"),⚠(Keyword),⚠("{"),⚠("}")),⚠)
+
+# lambda
+Func<int, int> f = x => x + 1;
+==>
+Program(⚠,TypeIdentifier,"<",SimpleType,⚠,",",SimpleType,⚠,">",⚠,⚠("="),⚠,⚠("=>"),⚠,⚠("+"),⚠(IntegerLiteral),";")
+
+# lambda block
+Action a = () => { x = 1; };
+==>
+Program(⚠,TypeIdentifier,⚠,TypeIdentifier,⚠("="),Delim("(",")"),⚠("=>"),⚠("{"),⚠,⚠("="),⚠(IntegerLiteral),";",⚠("}"),⚠(";"))
+
+# new object
+new Point();
+==>
+Program(Keyword,⚠,⚠("("),⚠(")"),⚠(";"))
+
+# new with args
+new Point(1, 2);
+==>
+Program(Keyword,⚠,⚠("("),⚠(IntegerLiteral),⚠(","),⚠(IntegerLiteral),⚠(")"),⚠(";"))
+
+# precedence
+x = 1 + 2 * 3;
+==>
+Program(⚠,TypeIdentifier,"=",⚠(IntegerLiteral),⚠("+"),⚠(IntegerLiteral),⚠(Astrisk),⚠(IntegerLiteral),TypeIdentifier(⚠),";")

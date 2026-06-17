@@ -1,0 +1,209 @@
+# fn call
+foo();
+==>
+Program(ContainerField(TypeExpr(Identifier,FnCallArgs("(",")")),⚠))
+
+# fn call with args
+add(1, 2);
+==>
+Program(ContainerField(TypeExpr(Identifier,FnCallArgs("(",Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),")")),⚠))
+
+# method call
+obj.method();
+==>
+Program(ContainerField(TypeExpr(Identifier,SuffixOp(FieldAccess(Identifier)),FnCallArgs("(",")")),⚠))
+
+# struct init
+Point{ .x = 1, .y = 2 }
+==>
+Program(ContainerField(TypeExpr(Identifier,⚠("{"),SuffixOp(FieldAccess(Identifier))),Expr(TypeExpr(Integer))),ContainerField(TypeExpr(Identifier),Expr(TypeExpr(Integer))),⚠,⚠("}"))
+
+# struct field access
+p.x
+==>
+Program(ContainerField(TypeExpr(Identifier,SuffixOp(FieldAccess(Identifier)))))
+
+# enum access
+Color.red
+==>
+Program(ContainerField(TypeExpr(Identifier,SuffixOp(FieldAccess(Identifier)))))
+
+# if expression
+const v = if (x > 0) 1 else -1;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(IfExpr(IfPrefix(if,"(",Expr(BinaryExpr(Expr(TypeExpr(Identifier)),CompareOp,Expr(TypeExpr(Integer)))),")"),Expr(TypeExpr(Integer)),else,Expr(PrefixExpr(PrefixOp,TypeExpr(Integer))))))))
+
+# if without else
+if (x) foo();
+==>
+Program(ContainerField(TypeExpr(IfTypeExpr(IfPrefix(if,"(",Expr(TypeExpr(Identifier)),")"),TypeExpr(Identifier,FnCallArgs("(",")")))),⚠))
+
+# if with block
+if (x) { foo(); }
+==>
+Program(ContainerField(TypeExpr(IfTypeExpr(IfPrefix(if,"(",Expr(TypeExpr(Identifier)),")"),TypeExpr(GroupedExpr(⚠,Expr(Block("{",Statement(Expr(TypeExpr(Identifier,FnCallArgs("(",")")))),"}")),⚠))))))
+
+# if else blocks
+if (x) { a(); } else { b(); }
+==>
+Program(ContainerField(TypeExpr(IfTypeExpr(IfPrefix(if,"(",Expr(TypeExpr(Identifier)),")"),TypeExpr(GroupedExpr(⚠,Expr(Block("{",Statement(Expr(TypeExpr(Identifier,FnCallArgs("(",")")))),"}")),⚠)),else,⚠("{"),TypeExpr(Identifier,FnCallArgs("(",")")))),⚠),⚠,⚠("}"))
+
+# switch expression
+const v = switch (x) { 1 => true, else => false };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(SwitchExpr(switch,"(",Expr(TypeExpr(Identifier)),")",SwitchBlock("{",SwitchProng(SwitchCase(SwitchItem(Expr(TypeExpr(Integer)))),SingleAssignExpr(Expr(TypeExpr(Identifier)))),SwitchProng(SwitchCase(else),SingleAssignExpr(Expr(TypeExpr(Identifier)))),"}")))))))
+
+# switch with block
+switch (x) { 1 => { foo(); }, else => { bar(); } }
+==>
+Program(ContainerField(TypeExpr(SwitchExpr(switch,"(",Expr(TypeExpr(Identifier)),")",SwitchBlock("{",SwitchProng(SwitchCase(SwitchItem(Expr(TypeExpr(Integer)))),SingleAssignExpr(Expr(Block("{",Statement(Expr(TypeExpr(Identifier,FnCallArgs("(",")")))),"}")))),SwitchProng(SwitchCase(else),SingleAssignExpr(Expr(Block("{",Statement(Expr(TypeExpr(Identifier,FnCallArgs("(",")")))),"}")))),"}")))))
+
+# while loop
+while (x < 10) { x += 1; }
+==>
+Program(ContainerField(TypeExpr(LabeledTypeExpr(LoopTypeExpr(WhileTypeExpr(WhilePrefix(while,"(",Expr(BinaryExpr(Expr(TypeExpr(Identifier)),CompareOp,Expr(TypeExpr(Integer)))),")"),TypeExpr(GroupedExpr(⚠,Expr(Block("{",Statement(Expr(TypeExpr(Identifier)),AssignOp,Expr(TypeExpr(Integer))),"}")),⚠))))))))
+
+# for loop
+for (array) |item| { process(item); }
+==>
+Program(ContainerField(TypeExpr(LabeledTypeExpr(LoopTypeExpr(ForTypeExpr(ForPrefix(for,"(",ForArgList(ForItem(Expr(TypeExpr(Identifier)))),")",PtrListPayload(Identifier)),⚠("{"),TypeExpr(Identifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")")))))),⚠),⚠,⚠("}"))
+
+# for with index
+for (array) |item, index| { process(item); }
+==>
+Program(ContainerField(TypeExpr(LabeledTypeExpr(LoopTypeExpr(ForTypeExpr(ForPrefix(for,"(",ForArgList(ForItem(Expr(TypeExpr(Identifier)))),")",PtrListPayload(Identifier,Identifier)),⚠("{"),TypeExpr(Identifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")")))))),⚠),⚠,⚠("}"))
+
+# break
+break;
+==>
+Program(Decl(⚠,Expr(break)))
+
+# continue
+continue;
+==>
+Program(Decl(⚠,Expr(continue)))
+
+# inline for
+inline for (array) |item| { process(item); }
+==>
+Program(ContainerField(TypeExpr(LabeledTypeExpr(LoopTypeExpr(inline,ForTypeExpr(ForPrefix(for,"(",ForArgList(ForItem(Expr(TypeExpr(Identifier)))),")",PtrListPayload(Identifier)),⚠("{"),TypeExpr(Identifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")")))))),⚠),⚠,⚠("}"))
+
+# inline while
+inline while (condition) { }
+==>
+Program(ContainerField(TypeExpr(LabeledTypeExpr(LoopTypeExpr(inline,WhileTypeExpr(WhilePrefix(while,"(",Expr(TypeExpr(Identifier)),")"),TypeExpr(ContainerDecl(ContainerDeclType(⚠),ContainerBlock("{","}")))))))))
+
+# labeled block
+const v = blk: { break :blk 42; };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(LabeledTypeExpr(BlockLabel(Identifier),Block("{",Statement(Expr(break,BreakLabel(Identifier),Expr(TypeExpr(Integer)))),"}")))))))
+
+# labeled loop
+outer: while (true) { continue :outer; }
+==>
+Program(ContainerField(Identifier,TypeExpr(LabeledTypeExpr(LoopTypeExpr(WhileTypeExpr(WhilePrefix(while,"(",Expr(TypeExpr(Identifier)),")"),TypeExpr(GroupedExpr(⚠,Expr(Block("{",Statement(Expr(continue,BreakLabel(Identifier))),"}")),⚠))))))))
+
+# arithmetic
+const x = a + b * c;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(BinaryExpr(Expr(TypeExpr(Identifier)),AdditionOp,Expr(BinaryExpr(Expr(TypeExpr(Identifier)),MultiplyOp,Expr(TypeExpr(Identifier)))))))))
+
+# comparison
+const x = a > b;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(BinaryExpr(Expr(TypeExpr(Identifier)),CompareOp,Expr(TypeExpr(Identifier)))))))
+
+# bitwise
+const x = a & b;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(BinaryExpr(Expr(TypeExpr(Identifier)),BitwiseOp,Expr(TypeExpr(Identifier)))))))
+
+# logical
+const x = a and b;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(BinaryExpr(Expr(TypeExpr(Identifier)),and,Expr(TypeExpr(Identifier)))))))
+
+# range
+const x = a[0..10];
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(Slice(Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)))))))))
+
+# address of
+const p = &x;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(PrefixExpr(PrefixOp,TypeExpr(Identifier))))))
+
+# deref
+const v = p.*;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(Deref))))))
+
+# optional unwrap
+const v = x.?;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(Unwrap))))))
+
+# array access
+const v = arr[0];
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(ArrayAccess(Expr(TypeExpr(Integer)))))))))
+
+# builtin call
+const x = @intCast(i32, value);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),Expr(TypeExpr(Identifier)),")"))))))
+
+# sizeof
+const x = @sizeOf(i32);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")"))))))
+
+# alignof
+const x = @alignOf(i32);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")"))))))
+
+# typeof
+const T = @TypeOf(x);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")"))))))
+
+# pointer arithmetic
+const p = @ptrCast(*i32, ptr);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(PrefixTypeOp(PtrTypeStart),Identifier)),Expr(TypeExpr(Identifier)),")"))))))
+
+# slicing
+const s = arr[1..3];
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(Slice(Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)))))))))
+
+# try expression
+const v = try foo();
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(PrefixExpr(PrefixOp(try),TypeExpr(Identifier,FnCallArgs("(",")")))))))
+
+# catch expression
+const v = foo() catch 0;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(BinaryExpr(Expr(TypeExpr(Identifier,FnCallArgs("(",")"))),BitwiseOp(catch),Expr(TypeExpr(Integer)))))))
+
+# catch with payload
+const v = foo() catch |e| handleError(e);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(BinaryExpr(Expr(TypeExpr(Identifier,FnCallArgs("(",")"))),BitwiseOp(catch,Payload(Identifier)),Expr(TypeExpr(Identifier,FnCallArgs("(",Expr(TypeExpr(Identifier)),")"))))))))
+
+# suspend
+suspend {}
+==>
+Program(⚠(suspend),TestDecl(⚠,Block("{","}")))
+
+# resume
+resume frame;
+==>
+Program(Decl(⚠,Expr(resume,Expr(TypeExpr(Identifier)))))
+
+# nested function call
+const x = std.math.max(std.math.min(a, b), c);
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(FieldAccess(Identifier)),SuffixOp(FieldAccess(Identifier)),FnCallArgs("(",Expr(TypeExpr(Identifier,SuffixOp(FieldAccess(Identifier)),SuffixOp(FieldAccess(Identifier)),FnCallArgs("(",Expr(TypeExpr(Identifier)),Expr(TypeExpr(Identifier)),")"))),Expr(TypeExpr(Identifier)),")"))))))

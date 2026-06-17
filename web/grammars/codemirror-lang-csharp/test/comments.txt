@@ -1,0 +1,14 @@
+# line comment
+// This is a comment
+==>
+Program(LineComment)
+
+# block comment
+/* This is a comment */
+==>
+Program(BlockComment)
+
+# nested comment
+/* this /* comment */ ends here */
+==>
+Program(BlockComment,⚠,⚠,⚠(Astrisk),⚠(Slash))

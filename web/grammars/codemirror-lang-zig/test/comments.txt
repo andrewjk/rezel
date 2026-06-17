@@ -1,0 +1,25 @@
+# line comment
+// This is a comment
+==>
+Program(LineComment)
+
+# doc comment
+/// This is a doc comment
+==>
+Program(DocComment,⚠)
+
+# container doc comment
+//// Container doc comment
+==>
+Program(LineComment)
+
+# block comment
+/* block comment */
+==>
+Program(⚠,ContainerField(TypeExpr(PrefixTypeOp(PtrTypeStart),Identifier,⚠),⚠))
+
+# nested line comments
+// line1
+// line2
+==>
+Program(LineComment,LineComment)

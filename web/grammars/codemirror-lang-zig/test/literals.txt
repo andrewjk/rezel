@@ -1,0 +1,44 @@
+# integer decimal
+const x = 42;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Integer)))))
+
+# integer hex
+const x = 0xFF;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Integer)))))
+
+# integer binary
+const x = 0b1010;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Integer)))))
+
+# integer octal
+const x = 0o77;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Integer)))))
+
+# float literal
+const x = 3.14;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Float)))))
+
+# string literal
+const s = "hello";
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(StringLiteral)))))
+
+# char literal
+const c = 'a';
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(CharLiteral)))))
+
+# array literal
+const arr = [_]i32{ 1, 2, 3 };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(PrefixTypeOp(ArrayTypeStart(Expr(TypeExpr(Identifier)))),Identifier),InitList("{",Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),"}")))))
+
+# slice literal
+const slice = arr[1..3];
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(Identifier,SuffixOp(Slice(Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)))))))))
