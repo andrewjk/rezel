@@ -1,0 +1,4 @@
+{
+  "grammarFile": "csharp.grammar",
+  "outputVarName": "CSharpParser"
+}

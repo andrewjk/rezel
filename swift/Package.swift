@@ -31,6 +31,8 @@ let package = Package(
 				"Grammars/sass.grammar", "Grammars/sass.grammar-config",
 				"Grammars/xml.grammar", "Grammars/xml.grammar-config",
 				"Grammars/yaml.grammar", "Grammars/yaml.grammar-config",
+				"Grammars/zig.grammar", "Grammars/zig.grammar-config",
+				"Grammars/csharp.grammar", "Grammars/csharp.grammar-config",
 			]
 		),
 		.executableTarget(
