@@ -1,0 +1,49 @@
+# import
+const std = @import("std");
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(BuiltinIdentifier,FnCallArgs("(",Expr(TypeExpr(StringLiteral)),")"))))))
+
+# fn_decl
+pub fn add(a: i32, b: i32) i32 { return a + b; }
+==>
+Program(pub,Decl(FnProto(fn,Identifier,ParamDeclList("(",ParamDecl(Identifier,ParamType(TypeExpr(Identifier))),ParamDecl(Identifier,ParamType(TypeExpr(Identifier))),")"),TypeExpr(Identifier)),Block("{",Statement(Expr(return,Expr(BinaryExpr(Expr(TypeExpr(Identifier)),AdditionOp,Expr(TypeExpr(Identifier)))))),"}")))
+
+# var_decl
+const x: i32 = 42;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name,TypeExpr(Identifier)),Expr(TypeExpr(Integer)))))
+
+# struct
+const Point = struct { x: i32, y: i32 };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(ContainerDecl(ContainerDeclType(struct),ContainerBlock("{",ContainerField(Identifier,TypeExpr(Identifier)),ContainerField(Identifier,TypeExpr(Identifier)),"}")))))))
+
+# enum_decl
+const Color = enum { red, green, blue };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(ContainerDecl(ContainerDeclType(enum),ContainerBlock("{",ContainerField(TypeExpr(Identifier)),ContainerField(TypeExpr(Identifier)),ContainerField(TypeExpr(Identifier)),"}")))))))
+
+# if_expr
+const v = if (x > 0) 1 else -1;
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(IfExpr(IfPrefix(if,"(",Expr(BinaryExpr(Expr(TypeExpr(Identifier)),CompareOp,Expr(TypeExpr(Integer)))),")"),Expr(TypeExpr(Integer)),else,Expr(PrefixExpr(PrefixOp,TypeExpr(Integer))))))))
+
+# test_decl
+test "addition" { try expect(add(1, 2) == 3); }
+==>
+Program(TestDecl(test,TestName(StringLiteralSingle),Block("{",Statement(Expr(PrefixExpr(PrefixOp(try),TypeExpr(Identifier,FnCallArgs("(",Expr(BinaryExpr(Expr(TypeExpr(Identifier,FnCallArgs("(",Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),")"))),CompareOp,Expr(TypeExpr(Integer)))),")"))))),"}")))
+
+# switch_expr
+const v = switch (x) { 1 => true, else => false };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(SwitchExpr(switch,"(",Expr(TypeExpr(Identifier)),")",SwitchBlock("{",SwitchProng(SwitchCase(SwitchItem(Expr(TypeExpr(Integer)))),SingleAssignExpr(Expr(TypeExpr(Identifier)))),SwitchProng(SwitchCase(else),SingleAssignExpr(Expr(TypeExpr(Identifier)))),"}")))))))
+
+# string_lit
+const s = "hello";
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(StringLiteral)))))
+
+# array
+const arr = [_]i32{ 1, 2, 3 };
+==>
+Program(Decl(GlobalVarDecl(VarDeclProto(const,Name),Expr(TypeExpr(PrefixTypeOp(ArrayTypeStart(Expr(TypeExpr(Identifier)))),Identifier),InitList("{",Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),Expr(TypeExpr(Integer)),"}")))))

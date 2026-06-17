@@ -1,0 +1,29 @@
+# using directive
+using System;
+==>
+Program(Keyword,TypeIdentifier,";")
+
+# namespace
+namespace Foo { class Bar { } }
+==>
+Program(Keyword,TypeIdentifier,Delim("{",Keyword,TypeIdentifier,Delim("{","}"),"}"))
+
+# class declaration
+class Program { }
+==>
+Program(Keyword,TypeIdentifier,Delim("{","}"))
+
+# line comment
+// hello
+==>
+Program(LineComment)
+
+# block comment
+/* hello */
+==>
+Program(BlockComment)
+
+# empty namespace
+namespace MyApp { }
+==>
+Program(Keyword,TypeIdentifier,Delim("{","}"))

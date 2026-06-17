@@ -1,0 +1,31 @@
+{
+	"private": true,
+	"name": "codemirror-lang-zig-demo",
+	"type": "module",
+	"version": "0.0.0",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"test": "echo \"Error: no test specified\" && exit 1"
+	},
+	"author": "Joel Gustafson",
+	"license": "MIT",
+	"dependencies": {
+		"@codemirror/commands": "^6.10.0",
+		"@codemirror/lang-javascript": "^6.2.4",
+		"@codemirror/language": "^6.11.3",
+		"@codemirror/state": "^6.5.2",
+		"@codemirror/text": "^0.19.6",
+		"@codemirror/view": "^6.38.8",
+		"@lezer/common": "^1.4.0",
+		"@lezer/highlight": "^1.2.3",
+		"@types/react": "^19.2.7",
+		"@types/react-dom": "^19.2.3",
+		"codemirror": "^6.0.2",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0"
+	},
+	"devDependencies": {
+		"vite": "^7.2.4"
+	}
+}

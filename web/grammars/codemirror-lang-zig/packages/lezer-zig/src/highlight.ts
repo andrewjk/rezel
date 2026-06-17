@@ -1,0 +1,36 @@
+import { styleTags, tags as t } from "@lezer/highlight"
+
+export const highlighting = styleTags({
+	"asm enum fn struct test union var": t.definitionKeyword,
+	"comptime const continue defer errdefer export extern inline noalias noinline nosuspend pub resume": t.modifier,
+	"addrspace align allowzero anyframe anytype callconv error linksection packed threadlocal unreachable volatile":
+		t.modifier,
+	opaque: t.modifier,
+	"if else switch for while case return break continue try": t.controlKeyword,
+	"BlockLabel BreakLabel": t.labelName,
+	Identifier: t.variableName,
+	BuiltinIdentifier: t.keyword,
+	Name: t.definition(t.variableName),
+	"FnProto/Identifier": t.function(t.definition(t.variableName)),
+	"VarDeclProto/TypeExpr/Identifier FnProto/TypeExpr/Identifier ContainerField/TypeExpr/Identifier ParamType/TypeExpr/Identifier":
+		t.typeName,
+	AdditionOp: t.arithmeticOperator,
+	MultiplyOp: t.arithmeticOperator,
+	"and or": t.logicOperator,
+	BitwiseOp: t.bitwiseOperator,
+	BitShiftOp: t.bitwiseOperator,
+	CompareOp: t.compareOperator,
+	AssignOp: t.definitionOperator,
+	UpdateOp: t.updateOperator,
+	ContainerDocComment: t.lineComment,
+	DocComment: t.lineComment,
+	LineComment: t.lineComment,
+	Integer: t.number,
+	StringLiteral: t.string,
+	StringLiteralSingle: t.string,
+	"( )": t.paren,
+	"[ ]": t.squareBracket,
+	"{ }": t.brace,
+	".*": t.derefOperator,
+	", ;": t.separator,
+})

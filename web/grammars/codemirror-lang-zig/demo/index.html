@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>@ndim/codemirror-lang-zig</title>
+		<script defer type="module" src="src/index.tsx"></script>
+
+		<style>
+			html {
+				font-family: monospace;
+				background-color: #c4bfc7;
+				text-size-adjust: none;
+				-webkit-text-size-adjust: none;
+			}
+
+			body {
+				margin: 0;
+				height: 100%;
+				width: max-content;
+			}
+
+			main {
+				display: flex;
+				padding: 1em;
+				gap: 1em;
+				align-items: start;
+			}
+
+			.editor,
+			.ast {
+				width: 600px;
+				background-color: white;
+				border: outset;
+			}
+
+			pre.ast {
+				margin: 0;
+				padding: 4px;
+			}
+
+			main .editor .cm-editor .cm-scroller {
+				font-family: inherit;
+				font-size: 14px;
+			}
+		</style>
+	</head>
+
+	<body>
+		<main></main>
+	</body>
+</html>

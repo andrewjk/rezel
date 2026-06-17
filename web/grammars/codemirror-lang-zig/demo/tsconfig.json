@@ -1,0 +1,10 @@
+{
+	"include": ["src"],
+	"extends": "../tsconfig.base.json",
+	"compilerOptions": {
+		"rootDir": "src",
+		"outDir": "lib",
+		"jsx": "react"
+	},
+	"references": [{ "path": "../packages/codemirror-lang-zig/tsconfig.json" }]
+}

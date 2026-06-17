@@ -1,0 +1,7 @@
+{
+	"files": [],
+	"references": [
+		{ "path": "./packages/lezer-zig/tsconfig.json" },
+		{ "path": "./packages/codemirror-lang-zig/tsconfig.json" }
+	]
+}
