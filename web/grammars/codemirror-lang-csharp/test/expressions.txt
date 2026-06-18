@@ -1,124 +1,124 @@
 # assignment
-x = 3;
+class A { void M() { x = 3; } }
 ==>
-Program(⚠,TypeIdentifier,⚠("="),⚠(IntegerLiteral),";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Ident,"=",IntegerLiteral,";","}"),"}"))
 
 # binary expression
-a + b;
+class A { void M() { a + b; } }
 ==>
-Program(⚠,TypeIdentifier,⚠("+"),⚠,";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",LocalVarDecl(TypeIdentifier(⚠("+")),⚠,VarName),";","}"),"}"))
 
 # binary comparison
-a > b;
+class A { void M() { a > b; } }
 ==>
-Program(⚠,TypeIdentifier,⚠(">"),⚠,";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Ident,RightShiftAssignment(">",⚠),Ident,";","}"),"}"))
 
 # binary logic
-a && b;
+class A { void M() { a && b; } }
 ==>
-Program(⚠,TypeIdentifier,⚠("&&"),⚠,";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",LocalVarDecl(TypeIdentifier(⚠("&&")),⚠,VarName),";","}"),"}"))
 
 # unary
-!x;
+class A { void M() { !x; } }
 ==>
-Program(⚠(Not),⚠,TypeIdentifier,";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",UnaryExpr(Not,Ident),⚠,";","}"),"}"))
 
 # postfix
-x++;
+class A { void M() { x++; } }
 ==>
-Program(⚠,TypeIdentifier,⚠("++"),";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Ident,"++",";","}"),"}"))
 
 # prefix
-++x;
+class A { void M() { ++x; } }
 ==>
-Program(⚠("++"),⚠,TypeIdentifier,";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{","++",Ident,";","}"),"}"))
 
 # if statement
-if (x) y;
+class A { void M() { if (x) y(); } }
 ==>
-Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,⚠(")"),VarName,⚠(";")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("(",Ident,")"),MethodName,Delim("(",")"),";","}"),"}"))
 
 # if else
-if (x) { y = 1; } else { y = 2; }
+class A { void M() { if (x) { y(); } else { z(); } } }
 ==>
-Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,⚠(")"),⚠("{"),VarName,⚠("="),⚠(IntegerLiteral),⚠(";"),⚠("}"),⚠(Keyword),⚠("{"),⚠,⚠("="),⚠(IntegerLiteral),⚠(";"),⚠("}")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("(",Ident,")"),Delim("{",MethodName,Delim("(",")"),";","}"),Keyword,Delim("{",MethodName,Delim("(",")"),";","}"),"}"),"}"))
 
 # while loop
-while (x < 10) { x++; }
+class A { void M() { while (x < 10) { x++; } } }
 ==>
-Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,"<",⚠(IntegerLiteral),⚠(")"),⚠("{"),TypeIdentifier,⚠("++"),⚠(";"),⚠("}")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("(",MethodName,"<",⚠(IntegerLiteral),")"),Delim("{",Ident,"++",";","}"),"}"),"}"))
 
 # for loop
-for (int i = 0; i < 10; i++) { }
+class A { void M() { for (int i = 0; i < 10; i++) { } } }
 ==>
-Program(⚠(Keyword),⚠,Delim("(",SimpleType,⚠,VarName,⚠("="),⚠(IntegerLiteral),⚠(";")),⚠,TypeIdentifier,"<",⚠(IntegerLiteral),⚠(";"),TypeIdentifier,⚠("++"),⚠(")"),⚠("{"),⚠("}"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("(",LocalVarDecl(SimpleType,⚠,VarName,"=",IntegerLiteral),";",MethodName,"<",⚠(IntegerLiteral),";",Ident,"++",")"),Delim("{","}"),"}"),"}"))
 
 # foreach
-foreach (var item in list) { }
+class A { void M() { foreach (var item in list) { } } }
 ==>
-Program(⚠(Keyword),⚠,Delim("(",⚠(Keyword),TypeIdentifier,⚠(Keyword),VarName,")"),⚠("{"),⚠("}"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("(",Keyword,VarName,Keyword,Ident,")"),Delim("{","}"),"}"),"}"))
 
 # switch statement
-switch (x) { case 1: break; }
+class A { void M() { switch (x) { case 1: break; } } }
 ==>
-Program(⚠(Keyword),⚠,Delim("(",TypeIdentifier,⚠(")"),⚠("{"),⚠(Keyword),⚠(IntegerLiteral),⚠(":"),⚠(Keyword),⚠(";"),⚠("}")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("(",Ident,")"),Delim("{",Keyword,IntegerLiteral,":",Keyword,";","}"),"}"),"}"))
 
 # return statement
-return x;
+class A { void M() { return x; } }
 ==>
-Program(⚠(Keyword),⚠,TypeIdentifier,";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Ident,";","}"),"}"))
 
 # break statement
-break;
+class A { void M() { break; } }
 ==>
-Program(⚠(Keyword),⚠(";"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,";","}"),"}"))
 
 # continue statement
-continue;
+class A { void M() { continue; } }
 ==>
-Program(⚠(Keyword),⚠(";"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,";","}"),"}"))
 
 # throw statement
-throw new Exception();
+class A { void M() { throw new Exception(); } }
 ==>
-Program(⚠(Keyword),Keyword,⚠,⚠("("),⚠(")"),⚠(";"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,ObjectCreationExpr(Keyword,TypeIdentifier,Delim("(",")")),";","}"),"}"))
 
 # try catch
-try { x(); } catch { }
+class A { void M() { try { x(); } catch { } } }
 ==>
-Program(⚠(Keyword),⚠("{"),Delim(⚠,TypeIdentifier,Delim("(",")"),⚠(";"),⚠("}"),⚠(Keyword),⚠("{"),⚠("}")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("{",MethodName,Delim("(",")"),";","}"),Keyword,⚠,Delim("{","}"),"}"),"}"))
 
 # try finally
-try { x(); } finally { }
+class A { void M() { try { x(); } finally { } } }
 ==>
-Program(⚠(Keyword),⚠("{"),Delim(⚠,TypeIdentifier,Delim("(",")"),⚠(";"),⚠("}"),⚠(Keyword),⚠("{"),⚠("}")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("{",MethodName,Delim("(",")"),";","}"),Keyword,⚠,Delim("{","}"),"}"),"}"))
 
 # try catch finally
-try { x(); } catch (Exception e) { } finally { }
+class A { void M() { try { x(); } catch (Exception e) { } finally { } } }
 ==>
-Program(⚠(Keyword),⚠("{"),Delim(⚠,TypeIdentifier,Delim("(",")"),⚠(";"),⚠("}"),⚠(Keyword),⚠("("),⚠,⚠(")"),⚠("{"),⚠("}"),⚠(Keyword),⚠("{"),⚠("}")),⚠)
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Keyword,Delim("{",MethodName,Delim("(",")"),";","}"),Keyword,Delim("(",TypeIdentifier,⚠,VarName,")"),Delim("{","}"),Keyword,⚠,Delim("{","}"),"}"),"}"))
 
 # lambda
-Func<int, int> f = x => x + 1;
+class A { void M() { Func<int, int> f = x => x + 1; } }
 ==>
-Program(⚠,TypeIdentifier,"<",SimpleType,⚠,",",SimpleType,⚠,">",⚠,⚠("="),⚠,⚠("=>"),⚠,⚠("+"),⚠(IntegerLiteral),";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",LocalVarDecl(TypeIdentifier,"<",SimpleType,⚠,",",SimpleType,⚠,">",⚠,VarName,"=",LambdaExpr(ParamName,"=>",BinaryExpr(Ident,"+",IntegerLiteral))),";","}"),"}"))
 
 # lambda block
-Action a = () => { x = 1; };
+class A { void M() { Action a = () => { x = 1; }; } }
 ==>
-Program(⚠,TypeIdentifier,⚠,TypeIdentifier,⚠("="),Delim("(",")"),⚠("=>"),⚠("{"),⚠,⚠("="),⚠(IntegerLiteral),";",⚠("}"),⚠(";"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",LocalVarDecl(TypeIdentifier,⚠,VarName,"=",LambdaExpr(Delim("(",")"),"=>",Delim("{",Ident,"=",IntegerLiteral,";","}"))),";","}"),"}"))
 
 # new object
-new Point();
+class A { void M() { var p = new Point(); } }
 ==>
-Program(Keyword,⚠,⚠("("),⚠(")"),⚠(";"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",LocalVarDecl(Keyword,VarName,"=",ObjectCreationExpr(Keyword,TypeIdentifier,Delim("(",")"))),";","}"),"}"))
 
 # new with args
-new Point(1, 2);
+class A { void M() { var p = new Point(1, 2); } }
 ==>
-Program(Keyword,⚠,⚠("("),⚠(IntegerLiteral),⚠(","),⚠(IntegerLiteral),⚠(")"),⚠(";"))
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",LocalVarDecl(Keyword,VarName,"=",ObjectCreationExpr(Keyword,TypeIdentifier,Delim("(",IntegerLiteral,",",IntegerLiteral,")"))),";","}"),"}"))
 
 # precedence
-x = 1 + 2 * 3;
+class A { void M() { x = 1 + 2 * 3; } }
 ==>
-Program(⚠,TypeIdentifier,"=",⚠(IntegerLiteral),⚠("+"),⚠(IntegerLiteral),⚠(Astrisk),⚠(IntegerLiteral),TypeIdentifier(⚠),";")
+Program(Keyword,TypeIdentifier,Delim("{",SimpleType,⚠,MethodName,Delim("(",")"),Delim("{",Ident,"=",BinaryExpr(IntegerLiteral,"+",BinaryExpr(IntegerLiteral,Astrisk,IntegerLiteral)),";","}"),"}"))

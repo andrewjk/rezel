@@ -204,6 +204,14 @@ public sealed class Parse : IPartialParse
         }
     outerContinue:
 
+        if (newStacks.Count == 0)
+        {
+            // All stacks stuck — return the best stopped stack as a fallback
+            if (stopped != null && stopped.Count > 0)
+                return StackToTree(stopped[0].ForceAll());
+            throw new Exception("No parse at " + pos);
+        }
+
         MinStackPos = newStacks[0].Pos;
         for (var i = 1; i < newStacks.Count; i++)
             if (newStacks[i].Pos < MinStackPos) MinStackPos = newStacks[i].Pos;
@@ -307,8 +315,7 @@ public sealed class Parse : IPartialParse
                 if (restarted) continue;
                 restarted = true;
                 stack.Restart();
-                AdvanceFully(stack, newStacks);
-                continue;
+                if (AdvanceFully(stack, newStacks)) continue;
             }
 
             var force = stack.Split();

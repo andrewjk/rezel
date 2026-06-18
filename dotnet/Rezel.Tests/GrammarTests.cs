@@ -9,9 +9,14 @@ namespace Rezel.Tests;
 
 public static class GrammarParserRegistry
 {
+    public static readonly string GrammarTestRoot = Path.Combine(
+        Path.GetDirectoryName(typeof(GrammarTests).Assembly.Location)!,
+        "..", "..", "..", "..", "..", "web", "grammars");
+
     public static readonly string[] Languages =
     [
-        "cpp", "css", "go", "java", "php", "python", "rust", "sass", "xml", "yaml"
+        "cpp", "css", "go", "java", "php", "python", "rust", "sass", "xml", "yaml",
+        "zig", "csharp"
     ];
 
     public static LRParser GetParser(string lang)
@@ -28,23 +33,32 @@ public static class GrammarParserRegistry
             "sass" => SassGrammar.Parser,
             "xml" => XmlGrammar.Parser,
             "yaml" => YamlGrammar.Parser,
+            "zig" => ZigGrammar.Parser,
+            "csharp" => CSharpGrammar.Parser,
             _ => throw new ArgumentException($"Unknown grammar: {lang}"),
         };
+    }
+
+    public static string GetTestDir(string lang)
+    {
+        var subDir = lang switch
+        {
+            "zig" => "codemirror-lang-zig",
+            "csharp" => "codemirror-lang-csharp",
+            _ => lang,
+        };
+        return Path.Combine(GrammarTestRoot, subDir, "test");
     }
 }
 
 [TestClass]
 public class GrammarTests
 {
-    static readonly string GrammarTestRoot = Path.Combine(
-        Path.GetDirectoryName(typeof(GrammarTests).Assembly.Location)!,
-        "..", "..", "..", "..", "..", "web", "grammars");
-
     public static IEnumerable<object[]> GetGrammarTestCases()
     {
         foreach (var lang in GrammarParserRegistry.Languages)
         {
-            var testDir = Path.Combine(GrammarTestRoot, lang, "test");
+            var testDir = GrammarParserRegistry.GetTestDir(lang);
             if (!Directory.Exists(testDir)) continue;
             foreach (var file in Directory.GetFiles(testDir, "*.txt"))
             {

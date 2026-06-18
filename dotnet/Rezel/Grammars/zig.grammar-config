@@ -1,0 +1,4 @@
+{
+  "grammarFile": "zig.grammar",
+  "outputVarName": "ZigParser"
+}

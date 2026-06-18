@@ -1,0 +1,481 @@
+@precedence {
+  fncallargs @right
+  suffix @left
+  labeledStatement
+  statement @right
+  curlyRight @right
+  curlyLeft @left
+  assign @right
+
+  // happens first
+  multiply @left
+  add @left
+  bitShift @left
+  bitwise @left
+  compare @left
+  and @left
+  or @left
+  // happens last
+  binary
+
+  else @right
+
+  prefix
+  primary
+
+  containerDecl @left
+
+  // for precedence over self
+  docComment // from test grammar, only really needed if have DocComment*
+}
+
+//// Templates.
+
+list<x> { (x ",")* x? }
+
+//// Root.
+
+@top Program { ContainerDocComment? containerMembers }
+
+containerMembers { containerDecl* !containerDecl (ContainerField ",")* (ContainerField | containerDecl*) }
+
+containerDecl { TestDecl | ComptimeDecl | DocComment? kw<"pub">? Decl }
+
+//// Top level.
+
+ContainerDocComment { containerComment+ }
+
+TestDecl { kw<"test"> TestName? Block }
+
+TestName { StringLiteralSingle | identifier }
+
+ComptimeDecl { kw<"comptime"> Block }
+
+Decl {
+  (kw<"export"> | (kw<"extern"> StringLiteralSingle?) | kw<"inline"> | kw<"noinline">)? FnProto (";" | Block)
+  | (kw<"export"> | (kw<"extern"> StringLiteralSingle?))? kw<"threadlocal">? GlobalVarDecl
+  | kw<"usingnamespace"> Expr ";"
+}
+
+FnProto { kw<"fn"> Identifier? ParamDeclList ByteAlign? AddrSpace? CallConv? LinkSection? "!"? TypeExpr }
+
+VarDeclProto { ( kw<"const"> | kw<"var"> ) Name (":" TypeExpr)? ByteAlign? AddrSpace? LinkSection? }
+
+GlobalVarDecl { VarDeclProto ("=" Expr)? ";" }
+
+ContainerField {
+  DocComment? (!curlyRight kw<"comptime">)? /*!KEYWORD_fn*/ (Identifier ":")? TypeExpr ByteAlign? ("=" Expr)?
+}
+
+Name { identifier }
+
+//// Block level.
+
+Statement {
+  !statement kw<"comptime"> ComptimeStatement
+  | !statement kw<"nosuspend"> BlockExprStatement
+  | kw<"suspend"> BlockExprStatement
+  | kw<"defer"> BlockExprStatement
+  | kw<"errdefer"> Payload? BlockExprStatement
+  | !statement IfStatement
+  | labeledStatement
+  | !curlyRight SwitchExpr
+  //| (AssignExpr | Expr) ";"
+  | varDeclExprStatement
+}
+
+ComptimeStatement { blockExpr | varDeclExprStatement }
+
+IfStatement {
+  !statement IfPrefix ( blockExpr (!else kw<"else"> Payload? Statement)?
+                        | AssignExpr (";" | !else kw<"else"> Payload? Statement) )
+}
+
+labeledStatement { !labeledStatement BlockLabel? (Block | LoopStatement) }
+
+LoopStatement { kw<"inline">? (ForStatement | WhileStatement) }
+
+ForStatement {
+  ForPrefix ( blockExpr (!else kw<"else"> Statement)?
+              | (AssignExpr | Expr) (";" | !else kw<"else"> Statement) )
+}
+
+WhileStatement {
+  WhilePrefix ( blockExpr (!else kw<"else"> Payload? Statement)?
+                | AssignExpr (";" | !else kw<"else"> Payload? Statement) )
+  // tree-sitter-zig:
+  //            | (AssignExpr | Expr) (";" | !else kw<"else"> Payload? Statement) )
+}
+
+BlockExprStatement { blockExpr | (AssignExpr | Expr) ";" }
+
+blockExpr { !curlyRight BlockLabel? !curlyRight Block }
+
+// An expression, assignment, or any destructure, as a statement.
+varDeclExprStatement {
+  VarDeclProto ("," (VarDeclProto | Expr))* "=" Expr ";"
+  | Expr (AssignOp Expr | ("," (VarDeclProto | Expr))+ "=" Expr)? ";"
+}
+
+//// Expression level.
+
+// An assignment or a destructure whose LHS are all lvalue expressions.
+AssignExpr { !assign Expr (!assign AssignOp Expr | (!assign "," Expr)+ !assign "=" Expr)? }
+
+SingleAssignExpr { Expr (!assign AssignOp Expr)? }
+
+Expr { !binary BinaryExpr | !prefix PrefixExpr | !primary primaryExpr }
+
+BinaryExpr {
+  Expr !or kw<"or"> Expr
+  | Expr !and kw<"and"> Expr
+  | Expr !compare CompareOp Expr
+  | Expr !bitwise BitwiseOp Expr
+  | Expr !bitShift BitShiftOp Expr
+  | Expr !add AdditionOp Expr
+  | Expr !multiply MultiplyOp Expr
+}
+
+PrefixExpr { !prefix PrefixOp+ !primary primaryExpr }
+
+primaryExpr {
+  AsmExpr
+  | IfExpr
+  | kw<"break"> BreakLabel? Expr?
+  | !primary kw<"comptime"> Expr
+  | !primary kw<"nosuspend"> Expr
+  | kw<"continue"> BreakLabel?
+  | kw<"resume"> Expr
+  | kw<"return"> Expr?
+  | BlockLabel? LoopExpr
+  | Block
+  | curlySuffixExpr
+}
+
+curlySuffixExpr { !curlyRight TypeExpr (!curlyRight InitList)? }
+
+InitList {
+  "{" FieldInit ("," FieldInit)* ","? "}"
+  | "{" Expr ("," Expr)* ","? "}"
+  | "{" "}"
+}
+
+IfExpr { !primary IfPrefix Expr (!else kw<"else"> Payload? Expr)? }
+
+Block { "{" Statement* "}" }
+
+LoopExpr {
+  // this is for the inline in SwitchProng
+  !curlyRight (kw<"inline"> (ForExpr | WhileExpr))
+  | kw<"inline">? (ForExpr | WhileExpr) }
+
+ForExpr { !primary ForPrefix Expr (!else kw<"else"> Expr)? }
+
+WhileExpr { !primary WhilePrefix Expr (!else kw<"else"> Payload? Expr)? }
+
+TypeExpr { PrefixTypeOp* (ErrorUnionExpr | suffixExpr) }
+
+ErrorUnionExpr { suffixExpr !curlyRight "!" TypeExpr }
+
+suffixExpr {
+  kw<"async"> primaryTypeExpr (!suffix SuffixOp)* FnCallArgs
+  | !primary primaryTypeExpr (!suffix SuffixOp | FnCallArgs)*
+}
+
+primaryTypeExpr {
+  BuiltinIdentifier FnCallArgs
+  | CharLiteral
+  | ContainerDecl
+  | "." Identifier
+  | "." InitList
+  | ErrorSetDecl
+  | Float
+  | FnProto
+  | GroupedExpr
+  | LabeledTypeExpr
+  | Identifier
+  | IfTypeExpr
+  | Integer
+  | !primary kw<"comptime"> TypeExpr
+  | kw<"error"> "." Identifier
+  | kw<"anyframe">
+  | kw<"unreachable">
+  | StringLiteral
+  | SwitchExpr
+}
+
+ContainerDecl { ( kw<"extern"> | kw<"packed"> )? containerDeclAuto }
+
+ErrorSetDecl { kw<"error"> ErrBlock }
+
+ErrBlock { "{" list<DocComment? Identifier> "}" }
+
+GroupedExpr { "(" Expr ")" }
+
+IfTypeExpr { IfPrefix TypeExpr (!else kw<"else"> Payload? TypeExpr)? }
+
+LabeledTypeExpr { BlockLabel Block | BlockLabel? LoopTypeExpr }
+
+LoopTypeExpr {
+  // this is for the inline in SwitchProng
+  !curlyRight (kw<"inline"> (ForTypeExpr | WhileTypeExpr))
+  | kw<"inline">? (ForTypeExpr | WhileTypeExpr)
+}
+
+ForTypeExpr { ForPrefix TypeExpr (!else kw<"else"> TypeExpr)? }
+
+WhileTypeExpr { WhilePrefix TypeExpr (!else kw<"else"> Payload? TypeExpr)? }
+
+SwitchExpr { kw<"switch"> "(" Expr ")" SwitchBlock }
+
+SwitchBlock { "{" list<SwitchProng> "}" }
+
+//// Assembly.
+
+// ambig because may also be a labeled loop expr, labeled block or labeled loop typeExpr (due to BlockLabel)
+AsmExpr { kw<"asm"> kw<"volatile">? AsmParams }
+
+AsmParams { "(" Expr (~ambigColon AsmOutput)? ")" }
+
+AsmOutput { ":" AsmOutList AsmInput? }
+
+AsmOutList { list<AsmOutputItem> }
+
+AsmOutputItem { "[" Identifier "]" StringLiteral "(" (("->" TypeExpr) | Identifier) ")" }
+
+AsmInput { ":" AsmInList AsmClobbers? }
+
+AsmInList { list<AsmInputItem> }
+
+AsmInputItem { "[" Identifier "]" StringLiteral "(" Expr ")" }
+
+AsmClobbers { ":" AsmClobList }
+
+AsmClobList { list<StringLiteral> }
+
+//// Helper grammar.
+
+BreakLabel { ~ambigColon ":" Identifier }
+
+BlockLabel { /*left*/ Identifier ~ambigColon ":" }
+
+FieldInit { "." Identifier "=" Expr }
+
+WhileContinueExpr { ":" "(" (AssignExpr | Expr) ")" }
+
+LinkSection { kw<"linksection"> "(" Expr ")" }
+
+AddrSpace { kw<"addrspace"> "(" Expr ")" }
+
+//// Fn specific.
+
+CallConv { kw<"callconv"> "(" Expr ")" }
+
+ParamDeclList { "(" list<ParamDecl> ")" }
+
+ParamDecl {
+  DocComment? (kw<"noalias"> | kw<"comptime">)? (Identifier ":")? ParamType
+  | "..."
+}
+
+ParamType { kw<"anytype"> | TypeExpr }
+
+//// Control flow prefixes
+
+IfPrefix { kw<"if"> "(" Expr ")" PtrPayload? }
+
+WhilePrefix { kw<"while"> "(" Expr ")" PtrPayload? WhileContinueExpr? }
+
+ForPrefix { kw<"for"> "(" ForArgList ")" PtrListPayload }
+
+//// Payloads
+
+Payload { "|" Identifier "|" }
+
+PtrPayload { "|" Star? Identifier "|" }
+
+PtrIndexPayload { "|" "*"? Identifier ("," Identifier)* "|" }
+
+PtrListPayload { "|" "*"? Identifier ("," "*"? Identifier)* ","? "|" }
+
+Star { "*" }
+
+//// Switch specific.
+
+SwitchProng { kw<"inline">? SwitchCase "=>" PtrIndexPayload? SingleAssignExpr }
+
+SwitchCase { SwitchItem ("," SwitchItem)* ","? | kw<"else"> }
+
+SwitchItem { Expr ("..." Expr)? }
+
+//// For specific.
+
+ForArgList { ForItem ("," ForItem)* ","? }
+
+ForItem { Expr (".." Expr?)? }
+
+//// Operators
+
+CompareOp { "==" | "!=" | ">" | "<" | ">=" | "<=" }
+
+AssignOp { "*=" | "*|=" | "/=" | "%=" | "+=" | "+|=" | "-=" | "-|=" | "<<=" | "<<|=" | ">>=" | "&=" | "^=" | "|=" | "*%=" | "+%=" | "-%=" | "=" }
+
+BitwiseOp { "&" | "^" | "|" | kw<"orelse"> | kw<"catch"> Payload? }
+
+BitShiftOp { "<<" | ">>" | "<<|" }
+
+AdditionOp { "+" | "-" | "++" | "+%" | "-%" | "+|" | "-|" }
+
+MultiplyOp { "||" | "*" | arithOp<"/"> | "%" | "**" | "*%" | "*|" }
+
+PrefixOp { "!" | "-" | "~" | "-%" | "&" | kw<"try"> | kw<"await"> }
+
+PrefixTypeOp {
+  "?"
+  | kw<"anyframe"> "->"
+  | SliceTypeStart (ByteAlign | AddrSpace | kw<"const"> | kw<"volatile"> | kw<"allowzero">)*
+  // ambig because may also be a labeled loop expr, labeled block or labeled loop typeExpr (due to BlockLabel)
+  | PtrTypeStart (AddrSpace | kw<"align"> "(" Expr (~ambigColon ":" Expr ~ambigColon ":" Expr)? ")" | kw<"const"> | kw<"volatile"> | kw<"allowzero">)*
+  | ArrayTypeStart
+}
+
+ArrayAccess { "[" Expr "]" }
+// ambig because may also be a labeled loop expr, labeled block or labeled loop typeExpr (due to BlockLabel)
+Slice { "[" Expr ".." (Expr? (~ambigColon ":" Expr)?)? "]" }
+Deref { ".*" }
+Unwrap { ".?" }
+FieldAccess { "." Identifier }
+
+SuffixOp { Slice | ArrayAccess | FieldAccess | Deref | Unwrap }
+
+FnCallArgs { !fncallargs "(" list<Expr> ")" }
+
+//// Ptr specific.
+
+SliceTypeStart { "[" (":" Expr)? "]" }
+
+PtrTypeStart {
+  "*"
+  | "**"
+  // "...extended tokens allow both meanings to take effect, implicitly enabling GLR when both apply."
+  // vs kw<"c">, which turns any c into a keyword (when they may instead be identifiers)
+  | "[" "*" (@extend<identifier, "c"> | ":" Expr)? "]"
+}
+
+ArrayTypeStart { "[" Expr (~ambigColon ":" Expr)? "]" }
+
+//// ContainerDecl specific.
+
+containerDeclAuto { ContainerDeclType ContainerBlock }
+
+ContainerBlock { "{" ContainerDocComment? containerMembers "}" }
+
+ContainerDeclType {
+  kw<"struct"> ("(" Expr ")")?
+  | kw<"opaque">
+  | kw<"enum"> ("(" Expr ")")?
+  | kw<"union"> ("(" (kw<"enum"> ("(" Expr ")")? | Expr) ")")?
+}
+
+//// Alignment
+
+ByteAlign { kw<"align"> "(" Expr ")" }
+
+////
+
+Identifier { identifier }
+
+BuiltinIdentifier { builtinIdentifier }
+
+StringLiteral { stringLiteralSingle | multiStringLiteral }
+
+StringLiteralSingle { stringLiteralSingle }
+
+DocComment { (!docComment docComment)+ }
+
+LineComment { lineComment2 | lineComment4 }
+
+@skip { whitespace | LineComment }
+
+kw<term> { @specialize[@name={term}]<identifier, term> }
+
+@tokens {
+  whitespace {
+    ($[ \t\r\n] | "\r"? "\n")+
+  }
+
+  identifier {
+    $[A-Za-z_] $[A-Za-z0-9_]*
+    | "@" stringLiteralSingle
+  }
+
+  builtinIdentifier { "@" $[A-Za-z_] $[A-Za-z0-9_]* }
+
+  Integer {
+    "0b" $[01] ("_"? $[01])*
+    | "0o" $[0-7] ("_"? $[0-7])*
+    | "0x" $[0-9a-fA-F] ("_"? $[0-9a-fA-F])*
+    | $[0-9] ("_"? $[0-9])*
+  }
+
+  numeric_<regex> { regex ("_"? regex)* }
+
+  Float {
+    "0x" numeric_<$[0-9a-fA-F]> "." numeric_<$[0-9a-fA-F]> ($[pP] $[+\-]? numeric_<$[0-9]>)?
+    | numeric_<$[0-9]> "." numeric_<$[0-9]> ($[eE] $[+\-]? numeric_<$[0-9]>)?
+    | "0x" numeric_<$[0-9a-fA-F]> $[pP] $[+\-]? numeric_<$[0-9]>
+    | numeric_<$[0-9]> $[eE] $[+\-]? numeric_<$[0-9]>
+  }
+
+  @precedence { Float Integer }
+
+  multiStringLiteral { ("\\\\" ![\n]* $[ \n]* skip)+ }
+
+  stringEscape {
+    "\\n" | "\\r" | "\\t" | "\\\\" | "\\'" | "\\\"" | "\\x" $[0-9a-fA-F] $[0-9a-fA-F]
+    | "\\u{" $[0-9a-fA-F] ($[0-9a-fA-F] ($[0-9a-fA-F] ($[0-9a-fA-F] ($[0-9a-fA-F] $[0-9a-fA-F]?)?)?)?)? "}"
+  }
+
+  CharLiteral {
+    "'"
+    ( // charFragment
+      !['\\]
+      | stringEscape
+    )*
+    "'"
+  }
+
+  stringLiteralSingle {
+    "\""
+    ( // stringFragment
+      !["\\]*
+      | stringEscape
+    )*
+    "\""
+  }
+
+  skip { ($[ \n] | lineComment2 | lineComment4)* }
+
+  lineComment4 { "////" ("\\" (![\n] | "\\r"? "\\n") | ![\n])* }
+  lineComment2 { "//" ("\\" (![\n] | "\\r"? "\\n") | ![\n])* }
+
+  // tree-sitter-zig
+  //   misses ../test/comment.txt "field doc comment"
+  //   err with ////
+  //DocComment[isolate] { ("///" (![/\n] ![\n]* $[ \n]*|()))+ }
+  // spec
+  //DocComment[isolate] { ("///" ![\n]* $[ \n]* skip)+ }
+  //
+  docComment { "///" ![\n]* $[ \n]* (lineComment2 | lineComment4)* }
+
+  containerComment { "//!" ![\n]* $[ \n]* }
+
+  arithOp<expr> { expr }
+
+  @precedence { containerComment, lineComment4, docComment, lineComment2, arithOp }
+
+  // literal tokens
+  "{" "}" "(" ")"
+}
+
+@external propSource highlighting from "./highlight.js"
