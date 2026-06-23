@@ -1,5 +1,5 @@
 {
-	"name": "web",
+	"name": "rezel",
 	"version": "1.0.0",
 	"description": "",
 	"keywords": [],
@@ -12,17 +12,18 @@
 		"build": "vp pack",
 		"format": "vp fmt",
 		"test": "vp test",
-		"coverage": "vp test --coverage"
+		"coverage": "vp test --coverage",
+		"package": "tsx ./scripts/package.ts"
 	},
 	"devDependencies": {
-		"@types/node": "^25.9.1",
-		"@vitest/coverage-v8": "^4.1.6",
+		"@types/node": "^26.0.0",
+		"@vitest/coverage-v8": "^4.1.9",
 		"ist": "^1.1.7",
 		"tinybench": "^6.0.2",
-		"tsx": "^4.22.3",
+		"tsx": "^4.22.4",
 		"typescript": "^6.0.3",
 		"vite-plus": "catalog:",
 		"vitest": "catalog:"
 	},
-	"packageManager": "pnpm@11.5.0"
+	"packageManager": "pnpm@11.8.0"
 }
