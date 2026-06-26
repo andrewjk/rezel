@@ -1,31 +1,33 @@
 {
-	"private": true,
 	"name": "codemirror-lang-zig",
 	"version": "0.0.0",
+	"private": true,
 	"keywords": [
-		"zig",
 		"codemirror",
-		"lezer"
+		"lezer",
+		"zig"
 	],
+	"license": "MIT",
+	"author": "Joel Gustafson",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/nDimensional/codemirror-lang-zig.git"
 	},
-	"license": "MIT",
-	"author": "Joel Gustafson",
+	"workspaces": [
+		"packages/*",
+		"demo"
+	],
 	"type": "module",
 	"main": "lib/index.js",
 	"scripts": {
 		"dev": "tsc --build tsconfig.json --watch",
 		"build": "tsc --build tsconfig.json",
 		"clean": "tsc --build tsconfig.json --clean",
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"test": "mocha test/test-*.js"
 	},
-	"workspaces": [
-		"packages/*",
-		"demo"
-	],
 	"devDependencies": {
+		"@lezer/generator": "^1.0.0",
+		"mocha": "^10.2.0",
 		"typescript": "^5.9.3"
 	}
 }
