@@ -1,0 +1,19 @@
+# and list
+make && make install
+==>
+Program(CompleteCommand(And(Command(CommandName(Literal)),"&&",Command(CommandName(Literal),Arg(Literal)))))
+
+# or list
+make || true
+==>
+Program(CompleteCommand(Or(Command(CommandName(Literal)),"||",Command(CommandName(Literal)))))
+
+# and or mixed
+make && make test || echo Failed
+==>
+Program(CompleteCommand(Or(And(Command(CommandName(Literal)),"&&",Command(CommandName(Literal),Arg(Literal))),"||",Command(CommandName(Literal),Arg(Literal)))))
+
+# background
+sleep 10 &
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal)),"&"))

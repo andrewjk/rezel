@@ -1,0 +1,10 @@
+# line comment
+# This is a comment
+==>
+Program(Comment)
+
+# comment with command
+# comment
+echo hi
+==>
+Program(Comment,CompleteCommand(Command(CommandName(Literal),Arg(Literal))))

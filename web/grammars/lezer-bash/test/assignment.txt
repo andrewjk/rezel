@@ -1,0 +1,19 @@
+# simple assignment
+FOO=bar
+==>
+Program(CompleteCommand(Command(Assignment(VariableName,"=",Literal))))
+
+# assignment with command
+FOO=bar echo $FOO
+==>
+Program(CompleteCommand(Command(Assignment(VariableName,"=",Literal),CommandName(Literal),Arg(EnvironmentVariable(VariableName)))))
+
+# append assignment
+PATH=$PATH:/usr/local/bin
+==>
+Program(CompleteCommand(Command(Assignment(VariableName,"=",EnvironmentVariable(VariableName)))))
+
+# multiple assignments
+A=1 B=2 command
+==>
+Program(CompleteCommand(Command(Assignment(VariableName,"=",Literal),Assignment(VariableName,"=",Literal),CommandName(Literal))))

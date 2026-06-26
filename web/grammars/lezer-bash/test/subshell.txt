@@ -1,0 +1,9 @@
+# simple subshell
+(echo hi)
+==>
+Program(CompleteCommand(Subshell("(",Command(CommandName(Literal),Arg(Literal)),")")))
+
+# subshell with command
+(cd /tmp && ls)
+==>
+Program(CompleteCommand(Subshell("(",And(Command(CommandName(Literal),Arg(Literal)),"&&",Command(CommandName(Literal))),")")))

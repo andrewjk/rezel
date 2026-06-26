@@ -1,0 +1,9 @@
+# environment variable
+echo $HOME
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(EnvironmentVariable(VariableName)))))
+
+# variable in string
+echo "hello $name"
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(String))))

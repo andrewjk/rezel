@@ -1,0 +1,14 @@
+# simple pipeline
+ls | grep foo
+==>
+Program(CompleteCommand(Pipeline(Command(CommandName(Literal)),"|",Command(CommandName(Literal),Arg(Literal)))))
+
+# pipeline negation
+! grep foo file
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal),Arg(Literal))))
+
+# multi-pipeline
+cat file | grep foo | wc -l
+==>
+Program(CompleteCommand(Pipeline(Command(CommandName(Literal),Arg(Literal)),"|",Pipeline(Command(CommandName(Literal),Arg(Literal)),"|",Command(CommandName(Literal),Arg(Literal))))))

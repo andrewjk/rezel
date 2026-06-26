@@ -1,0 +1,20 @@
+# simple command
+echo hello
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal))))
+
+# command with args
+ls -la /tmp
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal),Arg(Literal))))
+
+# multiple commands
+echo hi
+echo bye
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal))),CompleteCommand(Command(CommandName(Literal),Arg(Literal))))
+
+# command with semicolon
+echo hi; echo bye
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal)),";",Command(CommandName(Literal),Arg(Literal))))

@@ -1,0 +1,31 @@
+# input redirect
+cat < file
+==>
+Program(CompleteCommand(Command(CommandName(Literal),IORedirect)))
+
+# output redirect
+echo hi > file
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal),IORedirect)))
+
+# append redirect
+echo hi >> file
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal),IORedirect)))
+
+# stderr redirect
+echo hi 2>/dev/null
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal),Arg(Literal),IORedirect)))
+
+# both redirect
+echo hi > file 2>&1
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(Literal),IORedirect,Arg(Literal),IORedirect)))
+
+# here document
+cat << EOF
+hello
+EOF
+==>
+Program(CompleteCommand(Command(CommandName(Literal),IORedirect)),CompleteCommand(Command(CommandName(Literal))),CompleteCommand(Command(CommandName(Literal))))

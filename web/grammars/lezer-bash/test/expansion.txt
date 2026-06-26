@@ -1,0 +1,39 @@
+# parameter expansion
+echo ${HOME}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,"}")))))
+
+# parameter with default
+echo ${x:-default}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,"}")))))
+
+# parameter with alternate
+echo ${x:+alt}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,ExpansionSuffix,Literal,"}")))))
+
+# parameter with assign
+echo ${x:=value}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,ExpansionSuffix("="),Literal,"}")))))
+
+# parameter substitution
+echo ${x#pattern}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,ExpansionSuffix,Literal,"}")))))
+
+# parameter substitution long
+echo ${x##pattern}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,ExpansionSuffix,Literal,"}")))))
+
+# parameter substitution end
+echo ${x%pattern}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,ExpansionSuffix,Literal,"}")))))
+
+# parameter substitution long end
+echo ${x%%pattern}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(ParameterExpansion("${",VariableName,ExpansionSuffix,Literal,"}")))))

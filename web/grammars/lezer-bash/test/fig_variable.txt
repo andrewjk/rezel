@@ -1,0 +1,4 @@
+# fig variable
+echo {{something}}
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(FigVariable))))

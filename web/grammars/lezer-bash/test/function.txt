@@ -1,0 +1,9 @@
+# function definition
+f() { echo hi; }
+==>
+Program(CompleteCommand(FunctionDefinition(Functionname,"(",")",BraceGroup("{",Command(CommandName(Literal),Arg(Literal)),"}"))))
+
+# function with redirect
+f() { echo hi; } > /dev/null
+==>
+Program(CompleteCommand(FunctionDefinition(Functionname,"(",")",BraceGroup("{",Command(CommandName(Literal),Arg(Literal)),"}"),IORedirect)))

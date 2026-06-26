@@ -1,0 +1,9 @@
+# simple brace group
+{ echo hi; }
+==>
+Program(CompleteCommand(BraceGroup("{",Command(CommandName(Literal),Arg(Literal)),"}")))
+
+# brace group with commands
+{ echo a; echo b; }
+==>
+Program(CompleteCommand(BraceGroup("{",Command(CommandName(Literal),Arg(Literal)),Command(CommandName(Literal),Arg(Literal)),"}")))

@@ -1,0 +1,19 @@
+# double quoted string
+echo "hello"
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(String))))
+
+# string with variable
+echo "hello $name"
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(String))))
+
+# string with escape
+echo "hello "world""
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(String),Arg(Literal),Arg(String))))
+
+# raw string
+echo 'hello'
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(RawString))))

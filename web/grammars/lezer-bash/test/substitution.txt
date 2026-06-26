@@ -1,0 +1,9 @@
+# command substitution
+echo $(ls)
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(CommandSubstitution("$(",CompleteCommand(Command(CommandName(Literal))),")")))))
+
+# nested command sub
+echo $(echo $(ls))
+==>
+Program(CompleteCommand(Command(CommandName(Literal),Arg(CommandSubstitution("$(",CompleteCommand(Command(CommandName(Literal),Arg(CommandSubstitution("$(",CompleteCommand(Command(CommandName(Literal))),")")))),")")))))

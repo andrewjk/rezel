@@ -1,0 +1,44 @@
+# if true
+if true; then echo yes; fi
+==>
+Program(CompleteCommand(IfClause(if,Command(CommandName(Literal)),then,Command(CommandName(Literal),Arg(Literal)),fi)))
+
+# if else
+if false; then echo no; else echo yes; fi
+==>
+Program(CompleteCommand(IfClause(if,Command(CommandName(Literal)),then,Command(CommandName(Literal),Arg(Literal)),else,Command(CommandName(Literal),Arg(Literal)),fi)))
+
+# if elif else
+if false; then echo a; elif true; then echo b; else echo c; fi
+==>
+Program(CompleteCommand(IfClause(if,Command(CommandName(Literal)),then,Command(CommandName(Literal),Arg(Literal)),elif,Command(CommandName(Literal)),then,Command(CommandName(Literal),Arg(Literal)),else,Command(CommandName(Literal),Arg(Literal)),fi)))
+
+# for loop
+for i in 1 2 3; do echo $i; done
+==>
+Program(CompleteCommand(ForClause(for,in,DoGroup(do,Command(CommandName(Literal),Arg(EnvironmentVariable(VariableName))),done))))
+
+# for loop with semicolons
+for i; do echo $i; done
+==>
+Program(CompleteCommand(ForClause(for,DoGroup(do,Command(CommandName(Literal),Arg(EnvironmentVariable(VariableName))),done))))
+
+# while loop
+while true; do echo running; done
+==>
+Program(CompleteCommand(WhileClause(while,Command(CommandName(Literal)),DoGroup(do,Command(CommandName(Literal),Arg(Literal)),done))))
+
+# until loop
+until false; do echo running; done
+==>
+Program(CompleteCommand(UntilClause(until,Command(CommandName(Literal)),DoGroup(do,Command(CommandName(Literal),Arg(Literal)),done))))
+
+# case statement
+case $x in a) echo a;; esac
+==>
+Program(CompleteCommand(CaseClause(case,⚠,in,")",Command(CommandName(Literal),Arg(Literal)),esac)))
+
+# case with default
+case $x in a) echo a;; *) echo other;; esac
+==>
+Program(CompleteCommand(CaseClause(case,⚠,in,")",Command(CommandName(Literal),Arg(Literal)),⚠,⚠(")"),⚠,⚠(";"),⚠(";"),esac)))
