@@ -143,7 +143,7 @@ nonisolated(unsafe) let cssHighlighting = styleTags([
 	"{ }": hlTags["brace"] as Any,
 ])
 
-public nonisolated(unsafe) let cssParser: LRParser = {
+public let cssParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"identifiers": makeCssExternalTokenizer(name: "identifiers", terms: CSSParserData.termTable),
 		"queryIdentifiers": makeCssExternalTokenizer(name: "queryIdentifiers", terms: CSSParserData.termTable),

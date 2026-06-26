@@ -62,7 +62,7 @@ nonisolated(unsafe) let goHighlighting = styleTags([
 	"{ }": hlTags["brace"] as Any,
 ])
 
-public nonisolated(unsafe) let goParser: LRParser = {
+public let goParser: LRParser = {
 	let terms = GoParserData.termTable
 	var trackedIds = Set<Int>()
 	for name in ["IncDecOp", "identifier", "Rune", "String", "Number"] {

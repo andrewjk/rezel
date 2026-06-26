@@ -21,7 +21,7 @@ nonisolated(unsafe) let bashHighlighting = styleTags([
 	"; &": hlTags["separator"] as Any,
 ])
 
-public nonisolated(unsafe) let bashParser: LRParser = {
+public let bashParser: LRParser = {
 	let spec = BashParserData.makeSpec(
 		externals: [:],
 		propSources: [bashHighlighting]

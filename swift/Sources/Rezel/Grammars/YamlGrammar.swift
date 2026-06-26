@@ -464,7 +464,7 @@ nonisolated(unsafe) let yamlHighlighting = styleTags([
 
 // MARK: - Parser
 
-public nonisolated(unsafe) let yamlParser: LRParser = {
+public let yamlParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"newlines": makeYamlExternalTokenizer(name: "newlines", terms: YamlParserData.termTable),
 		"blockMark": makeYamlExternalTokenizer(name: "blockMark", terms: YamlParserData.termTable),

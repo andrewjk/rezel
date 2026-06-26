@@ -36,7 +36,7 @@ nonisolated(unsafe) let zigHighlighting = styleTags([
 	", ;": hlTags["separator"] as Any,
 ])
 
-public nonisolated(unsafe) let zigParser: LRParser = {
+public let zigParser: LRParser = {
 	let spec = ZigParserData.makeSpec(
 		externals: [:],
 		propSources: [zigHighlighting]

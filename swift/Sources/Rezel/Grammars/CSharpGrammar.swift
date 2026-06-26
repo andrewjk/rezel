@@ -99,7 +99,7 @@ nonisolated(unsafe) let csharpHighlighting = styleTags([
 	"[ ]": hlTags["squareBracket"] as Any,
 ])
 
-public nonisolated(unsafe) let csharpParser: LRParser = {
+public let csharpParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"interpString": makeCSharpExternalTokenizer(name: "interpString", terms: CSharpParserData.termTable),
 		"interpVString": makeCSharpExternalTokenizer(name: "interpVString", terms: CSharpParserData.termTable),

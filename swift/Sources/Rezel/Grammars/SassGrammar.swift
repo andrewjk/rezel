@@ -376,7 +376,7 @@ nonisolated(unsafe) let sassHighlighting = styleTags([
 
 // MARK: - Parser
 
-public nonisolated(unsafe) let sassParser: LRParser = {
+public let sassParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"spaces": makeSassExternalTokenizer(name: "spaces", terms: SassParserData.termTable),
 		"comments": makeSassExternalTokenizer(name: "comments", terms: SassParserData.termTable),

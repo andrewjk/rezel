@@ -168,7 +168,7 @@ nonisolated(unsafe) let rustHighlighting = styleTags([
 	"Attribute/...": hlMeta,
 ])
 
-public nonisolated(unsafe) let rustParser: LRParser = {
+public let rustParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"literalTokens": makeRustExternalTokenizer(name: "literalTokens", terms: RustParserData.termTable),
 		"closureParam": makeRustExternalTokenizer(name: "closureParam", terms: RustParserData.termTable),

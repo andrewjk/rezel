@@ -152,7 +152,7 @@ nonisolated(unsafe) let cppHighlighting = styleTags([
 	", ;": hlTags["separator"] as Any,
 ])
 
-public nonisolated(unsafe) let cppParser: LRParser = {
+public let cppParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"rawString": makeCppExternalTokenizer(name: "rawString", terms: CppParserData.termTable),
 		"fallback": makeCppExternalTokenizer(name: "fallback", terms: CppParserData.termTable),

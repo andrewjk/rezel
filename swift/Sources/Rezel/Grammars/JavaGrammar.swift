@@ -40,7 +40,7 @@ nonisolated(unsafe) let javaHighlighting = styleTags([
 	", ;": hlTags["separator"] as Any,
 ])
 
-public nonisolated(unsafe) let javaParser: LRParser = {
+public let javaParser: LRParser = {
 	let spec = JavaParserData.makeSpec(
 		externals: [:],
 		propSources: [javaHighlighting]

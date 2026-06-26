@@ -201,7 +201,7 @@ nonisolated(unsafe) let jsHighlighting = styleTags([
 	"JSXBuiltin/JSXIdentifier": standardMod(hlTags["tagName"] as! Tag),
 ])
 
-public nonisolated(unsafe) let javaScriptParser: LRParser = {
+public let javaScriptParser: LRParser = {
 	let spec = JavaScriptParserData.makeSpec(
 		externals: [
 			"insertSemicolon": makeJsExternalTokenizer(name: "insertSemicolon", terms: JavaScriptParserData.termTable),

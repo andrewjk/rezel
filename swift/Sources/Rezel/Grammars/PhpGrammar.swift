@@ -304,7 +304,7 @@ nonisolated(unsafe) let phpHighlighting = styleTags([
 
 // MARK: - Parser
 
-public nonisolated(unsafe) let phpParser: LRParser = {
+public let phpParser: LRParser = {
 	let keywordMap = buildPhpKeywordMap(PhpParserData.termTable)
 	let externals: [String: TokenizerProtocol] = [
 		"expression": makePhpExternalTokenizer(name: "expression", terms: PhpParserData.termTable),

@@ -12,7 +12,7 @@ public struct NodeFlag: OptionSet, Sendable {
 	public static let anonymous = NodeFlag(rawValue: 8)
 }
 
-public final class NodeType {
+public final class NodeType: @unchecked Sendable {
 	public let name: String
 	public let props: [Int: Any]
 	public let id: Int
@@ -97,7 +97,7 @@ public final class NodeType {
 		return self.id == id
 	}
 
-	public nonisolated(unsafe) static let none = NodeType(name: "", props: [:], id: 0, flags: NodeFlag.anonymous.rawValue)
+	public static let none = NodeType(name: "", props: [:], id: 0, flags: NodeFlag.anonymous.rawValue)
 
 	public static func match<T>(map: [String: T]) -> (NodeType) -> T? {
 		var direct: [String: T] = [:]

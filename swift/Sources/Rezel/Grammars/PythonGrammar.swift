@@ -380,7 +380,7 @@ nonisolated(unsafe) let pythonHighlighting = styleTags([
 
 // MARK: - Parser
 
-public nonisolated(unsafe) let pythonParser: LRParser = {
+public let pythonParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"newlines": makePythonExternalTokenizer(name: "newlines", terms: PythonParserData.termTable),
 		"indentation": makePythonExternalTokenizer(name: "indentation", terms: PythonParserData.termTable),

@@ -1,6 +1,6 @@
 import Foundation
 
-public class Tree: CustomStringConvertible {
+public class Tree: @unchecked Sendable, CustomStringConvertible {
 	public var props: [Int: Any]?
 
 	public let type: NodeType
@@ -56,7 +56,7 @@ public class Tree: CustomStringConvertible {
 		return name + (childStr.isEmpty ? "" : "(\(childStr))")
 	}
 
-	public nonisolated(unsafe) static let empty = Tree(type: NodeType.none, children: [], positions: [], length: 0)
+	public static let empty = Tree(type: NodeType.none, children: [], positions: [], length: 0)
 
 	public func cursor(mode: IterMode = []) -> TreeCursor {
 		return TreeCursor(node: topNode, mode: mode)

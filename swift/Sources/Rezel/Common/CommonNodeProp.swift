@@ -1,6 +1,6 @@
 private nonisolated(unsafe) var _nextPropID: Int = 0
 
-public class NodePropBase {
+public class NodePropBase: @unchecked Sendable {
 	public let id: Int
 	public let perNode: Bool
 	public let combine: ((Any, Any) -> Any)?
@@ -51,20 +51,20 @@ public final class NodeProp<T>: NodePropBase {
 	}
 }
 
-public nonisolated(unsafe) let nodePropClosedBy = NodeProp<[String]>(deserialize: { $0.split(separator: " ").map(String.init) })
-public nonisolated(unsafe) let nodePropOpenedBy = NodeProp<[String]>(deserialize: { $0.split(separator: " ").map(String.init) })
-public nonisolated(unsafe) let nodePropGroup = NodeProp<[String]>(deserialize: { $0.split(separator: " ").map(String.init) })
-public nonisolated(unsafe) let nodePropIsolate = NodeProp<String>(deserialize: { value in
+public let nodePropClosedBy = NodeProp<[String]>(deserialize: { $0.split(separator: " ").map(String.init) })
+public let nodePropOpenedBy = NodeProp<[String]>(deserialize: { $0.split(separator: " ").map(String.init) })
+public let nodePropGroup = NodeProp<[String]>(deserialize: { $0.split(separator: " ").map(String.init) })
+public let nodePropIsolate = NodeProp<String>(deserialize: { value in
 	if !value.isEmpty && value != "rtl" && value != "ltr" && value != "auto" {
 		fatalError("Invalid value for isolate: \(value)")
 	}
 	return value.isEmpty ? "auto" : value
 })
-public nonisolated(unsafe) let nodePropContextHash = NodeProp<Int>(perNode: true)
-public nonisolated(unsafe) let nodePropLookAhead = NodeProp<Int>(perNode: true)
-public nonisolated(unsafe) let nodePropMounted = NodeProp<MountedTree>(perNode: true)
+public let nodePropContextHash = NodeProp<Int>(perNode: true)
+public let nodePropLookAhead = NodeProp<Int>(perNode: true)
+public let nodePropMounted = NodeProp<MountedTree>(perNode: true)
 
-public nonisolated(unsafe) let nodePropByName: [String: NodePropBase] = [
+public let nodePropByName: [String: NodePropBase] = [
 	"closedBy": nodePropClosedBy,
 	"openedBy": nodePropOpenedBy,
 	"group": nodePropGroup,

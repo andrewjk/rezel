@@ -1,6 +1,6 @@
 private nonisolated(unsafe) var _nextTagID: Int = 0
 
-public class Tag: CustomStringConvertible {
+public class Tag: @unchecked Sendable, CustomStringConvertible {
 	public let id: Int
 	public let name: String
 	public let set: [Tag]
@@ -60,7 +60,7 @@ public class Tag: CustomStringConvertible {
 
 private nonisolated(unsafe) var _nextModifierID: Int = 0
 
-public class Modifier {
+public class Modifier: @unchecked Sendable {
 	var instances: [Tag] = []
 	let id: Int
 	let name: String
@@ -116,7 +116,7 @@ private let hlModeOpaque = 0
 private let hlModeInherit = 1
 private let hlModeNormal = 2
 
-public class HighlightRule {
+public class HighlightRule: @unchecked Sendable {
 	public let tags: [Tag]
 	public let mode: Int
 	public let context: [String]?
@@ -154,7 +154,7 @@ public class HighlightRule {
 		context?.count ?? 0
 	}
 
-	public nonisolated(unsafe) static let empty = HighlightRule(tags: [], mode: hlModeNormal, context: nil)
+	public static let empty = HighlightRule(tags: [], mode: hlModeNormal, context: nil)
 }
 
 private nonisolated(unsafe) let _ruleNodeProp = NodeProp<HighlightRule>(
@@ -496,20 +496,20 @@ public func getStyleTags(_ node: SyntaxNodeRef) -> HighlightRule? {
 	return rule
 }
 
-public nonisolated(unsafe) let hlComment = Tag.define("comment")
-public nonisolated(unsafe) let hlName = Tag.define("name")
-public nonisolated(unsafe) let hlTypeName = Tag.define("typeName", parent: hlName)
-public nonisolated(unsafe) let hlPropertyName = Tag.define("propertyName", parent: hlName)
-public nonisolated(unsafe) let hlLiteral = Tag.define("literal")
-public nonisolated(unsafe) let hlString = Tag.define("string", parent: hlLiteral)
-public nonisolated(unsafe) let hlNumber = Tag.define("number", parent: hlLiteral)
-public nonisolated(unsafe) let hlContent = Tag.define("content")
-public nonisolated(unsafe) let hlHeading = Tag.define("heading", parent: hlContent)
-public nonisolated(unsafe) let hlKeyword = Tag.define("keyword")
-public nonisolated(unsafe) let hlOperator = Tag.define("operator")
-public nonisolated(unsafe) let hlPunctuation = Tag.define("punctuation")
-public nonisolated(unsafe) let hlBracket = Tag.define("bracket", parent: hlPunctuation)
-public nonisolated(unsafe) let hlMeta = Tag.define("meta")
+public let hlComment = Tag.define("comment")
+public let hlName = Tag.define("name")
+public let hlTypeName = Tag.define("typeName", parent: hlName)
+public let hlPropertyName = Tag.define("propertyName", parent: hlName)
+public let hlLiteral = Tag.define("literal")
+public let hlString = Tag.define("string", parent: hlLiteral)
+public let hlNumber = Tag.define("number", parent: hlLiteral)
+public let hlContent = Tag.define("content")
+public let hlHeading = Tag.define("heading", parent: hlContent)
+public let hlKeyword = Tag.define("keyword")
+public let hlOperator = Tag.define("operator")
+public let hlPunctuation = Tag.define("punctuation")
+public let hlBracket = Tag.define("bracket", parent: hlPunctuation)
+public let hlMeta = Tag.define("meta")
 
 public nonisolated(unsafe) let hlTags: [String: Any] = {
 	var t: [String: Any] = [:]

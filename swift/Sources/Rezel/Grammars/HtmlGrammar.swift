@@ -327,7 +327,7 @@ private nonisolated(unsafe) let htmlHighlighting = styleTags([
 
 // MARK: - Build Parser
 
-public nonisolated(unsafe) let htmlParser: LRParser = {
+public let htmlParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"scriptTokens": makeHtmlExternalTokenizer(name: "scriptTokens", terms: HtmlParserData.termTable),
 		"styleTokens": makeHtmlExternalTokenizer(name: "styleTokens", terms: HtmlParserData.termTable),

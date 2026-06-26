@@ -611,7 +611,7 @@ public class LrDialect {
 	}
 }
 
-public class ContextTracker {
+public class ContextTracker: @unchecked Sendable {
 	public let start: Any
 	public let shift: (Any, Int, Stack, InputStream) -> Any
 	public let reduce: (Any, Int, Stack, InputStream) -> Any
@@ -636,7 +636,7 @@ public class ContextTracker {
 	}
 }
 
-public class LRParser: Parser {
+public class LRParser: Parser, @unchecked Sendable {
 	public let states: [UInt32]
 	public let data: [UInt16]
 	public let goto: [UInt16]

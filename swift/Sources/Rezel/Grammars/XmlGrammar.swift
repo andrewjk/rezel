@@ -170,7 +170,7 @@ private nonisolated(unsafe) let xmlHighlighting = styleTags([
 
 // MARK: - Build Parser
 
-public nonisolated(unsafe) let xmlParser: LRParser = {
+public let xmlParser: LRParser = {
 	let externals: [String: TokenizerProtocol] = [
 		"startTag": makeXmlExternalTokenizer(name: "startTag", terms: XmlParserData.termTable),
 		"commentContent": makeXmlExternalTokenizer(name: "commentContent", terms: XmlParserData.termTable),

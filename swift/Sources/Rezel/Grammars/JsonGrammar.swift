@@ -11,7 +11,7 @@ private nonisolated(unsafe) let jsonHighlighting = styleTags([
 	"{ }": (hlTags["brace"] as! Tag),
 ])
 
-public nonisolated(unsafe) let jsonParser: LRParser = {
+public let jsonParser: LRParser = {
 	let spec = JsonParserData.makeSpec(
 		externals: [:],
 		propSources: [jsonHighlighting]

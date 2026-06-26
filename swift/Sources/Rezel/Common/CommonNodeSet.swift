@@ -1,4 +1,4 @@
-public final class NodeSet {
+public final class NodeSet: @unchecked Sendable {
 	public let types: [NodeType]
 
 	public init(types: [NodeType]) {
