@@ -90,7 +90,7 @@ public static class CppGrammar
                 {
                     var sawLetter = false;
                     var i = 0;
-                    for (;; i++)
+                    for (; ; i++)
                     {
                         if (input.Next >= A && input.Next <= Z) sawLetter = true;
                         else if (input.Next >= a && input.Next <= z) return;

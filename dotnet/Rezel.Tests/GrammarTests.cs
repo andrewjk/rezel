@@ -16,7 +16,7 @@ public static class GrammarParserRegistry
     public static readonly string[] Languages =
     [
         "cpp", "css", "go", "java", "php", "python", "rust", "sass", "xml", "yaml",
-        "zig", "csharp"
+        "zig", "csharp", "bash"
     ];
 
     public static LRParser GetParser(string lang)
@@ -35,6 +35,7 @@ public static class GrammarParserRegistry
             "yaml" => YamlGrammar.Parser,
             "zig" => ZigGrammar.Parser,
             "csharp" => CSharpGrammar.Parser,
+            "bash" => BashGrammar.Parser,
             _ => throw new ArgumentException($"Unknown grammar: {lang}"),
         };
     }
@@ -45,6 +46,7 @@ public static class GrammarParserRegistry
         {
             "zig" => "codemirror-lang-zig",
             "csharp" => "codemirror-lang-csharp",
+            "bash" => "lezer-bash",
             _ => lang,
         };
         return Path.Combine(GrammarTestRoot, subDir, "test");
